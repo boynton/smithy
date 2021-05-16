@@ -1291,9 +1291,6 @@ func withCommentTrait(traits *Struct, val string) (*Struct, string) {
 	return traits, ""
 }
 
-//notes:
-//1. Smithy IDL's "node_string_value" can be a quoted string, a triple-quaoted text block, *or* an absolute shape_id
-//2.
 func (p *Parser) parseLiteralValue() (interface{}, error) {
 	tok := p.GetToken()
 	if tok == nil {
@@ -1307,6 +1304,7 @@ func (p *Parser) parseLiteral(tok *Token) (interface{}, error) {
 	case SYMBOL:
 		return p.parseLiteralSymbol(tok)
 	case STRING:
+		//todo: string blocks, i.e. triple-quoted strings
 		return p.parseLiteralString(tok)
 	case NUMBER:
 		return p.parseLiteralNumber(tok)
@@ -1381,12 +1379,9 @@ func (p *Parser) parseLiteralObject() (interface{}, error) {
 		if tok.Type == CLOSE_BRACE {
 			return obj, nil
 		}
-		if tok.Type == STRING {
-			pkey, err := p.parseLiteralString(tok)
-			if err != nil {
-				return nil, err
-			}
-			err = p.expect(COLON)
+		if tok.IsText() {
+			key := tok.Text
+			err := p.expect(COLON)
 			if err != nil {
 				return nil, err
 			}
@@ -1394,9 +1389,9 @@ func (p *Parser) parseLiteralObject() (interface{}, error) {
 			if err != nil {
 				return nil, err
 			}
-			obj[*pkey] = val
+			obj[key] = val
 		} else if tok.Type == SYMBOL {
-			return nil, p.Error("Expected String key for JSON object, found symbol '" + tok.Text + "'")
+			return nil, p.Error("Expected String or Identifier key for NodeObject, found symbol '" + tok.Text + "'")
 		} else {
 			//fmt.Println("ignoring this token:", tok)
 		}

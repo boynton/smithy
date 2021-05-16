@@ -46,6 +46,7 @@ func (ast *AST) IDL(ns string) string {
 	w.Begin()
 	w.Emit("$version: %q\n", ast.Smithy) //only if a version-specific feature is needed. Could be "1" or "1.0"
 	emitted := make(map[string]bool, 0)
+
 	if ast.Metadata.Length() > 0 {
 		w.Emit("\n")
 		for _, k := range ast.Metadata.Keys() {

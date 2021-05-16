@@ -61,13 +61,38 @@ func (ast *AST) Merge(src *AST) error {
 	if ast.Smithy != src.Smithy {
 		return fmt.Errorf("Smithy version mismatch. Expected %s, got %s\n", ast.Smithy, src.Smithy)
 	}
-	for _, k := range src.Shapes.Keys() {
-		if tmp := ast.GetShape(k); tmp != nil {
-			return fmt.Errorf("Duplicate shape in assembly: %s\n", k)
+	if src.Metadata != nil {
+		if ast.Metadata == nil {
+			ast.Metadata = src.Metadata
+		} else {
+			for _, k := range src.Metadata.Keys() {
+				v := src.Metadata.Get(k)
+				prev := ast.Metadata.Get(k)
+				if prev != nil {
+					err := ast.mergeConflict(k, prev, v)
+					if err != nil {
+						return err
+					}
+				}
+				ast.Metadata.Put(k, v)
+			}
 		}
-		ast.PutShape(k, src.GetShape(k))
+	}
+	if src.Shapes != nil {
+		for _, k := range src.Shapes.Keys() {
+			if tmp := ast.GetShape(k); tmp != nil {
+				return fmt.Errorf("Duplicate shape in assembly: %s\n", k)
+			}
+			ast.PutShape(k, src.GetShape(k))
+		}
 	}
 	return nil
+}
+
+func (ast *AST) mergeConflict(k string, v1 interface{}, v2 interface{}) error {
+	//todo: if values are identical, accept one of them
+	//todo: concat list values
+	return fmt.Errorf("Conflict when merging metadata in models: %s\n", k)
 }
 
 func loadAST(path string) (*AST, error) {
@@ -135,12 +160,14 @@ func shapeIdNamespace(id string) string {
 
 func (model *Model) Namespaces() []string {
 	m := make(map[string]int, 0)
-	for _, id := range model.ast.Shapes.Keys() {
-		ns := shapeIdNamespace(id)
-		if n, ok := m[ns]; ok {
-			m[ns] = n + 1
-		} else {
-			m[ns] = 1
+	if model.ast.Shapes != nil {
+		for _, id := range model.ast.Shapes.Keys() {
+			ns := shapeIdNamespace(id)
+			if n, ok := m[ns]; ok {
+				m[ns] = n + 1
+			} else {
+				m[ns] = 1
+			}
 		}
 	}
 	nss := make([]string, 0, len(m))
