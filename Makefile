@@ -2,8 +2,7 @@ all:: bin/smithy
 
 bin/smithy::
 	mkdir -p bin
-#	go build -ldflags "-X github.com/boynton/smithy.ToolVersion=`git describe --tag`" -o bin/smithy github.com/boynton/cmd/smithy
-	go build -ldflags "-X github.com/boynton/smithy.ToolVersion=v0.0.0" -o bin/smithy github.com/boynton/smithy/cmd/smithy
+	go build -ldflags "-X github.com/boynton/smithy.ToolVersion=`git describe --tag`" -o bin/smithy github.com/boynton/smithy/cmd/smithy
 
 install:: all
 	rm -f $(HOME)/bin/smithy
