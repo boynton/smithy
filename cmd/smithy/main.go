@@ -14,7 +14,7 @@ func main() {
 	pOutdir := flag.String("o", "", "The directory to generate output into (defaults to stdout)")
 	flag.Parse()
 	if *pVersion {
-		fmt.Printf("smithy tool %s\n", smithy.ToolVersion)
+		fmt.Printf("Smithy tool %s [%s]\n", smithy.ToolVersion, "https://github.com/boynton/smithy")
 		os.Exit(0)
 	}
 	if false {
