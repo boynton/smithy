@@ -15,7 +15,7 @@ structure Foo {
 @Beta
 string Blah
 
-@trait(selector: "string", conflicts: [Beta])
+@trait(selector: "string", conflicts: ["Beta"]) 
 structure structuredTrait {
     @required
     lorem: StringShape,
