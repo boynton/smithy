@@ -1281,11 +1281,7 @@ func withTrait(traits *Struct, key string, val interface{}) *Struct {
 
 func withCommentTrait(traits *Struct, val string) (*Struct, string) {
 	if val != "" {
-		lst := strings.Split(val, "\n")
-		for i := 0; i < len(lst); i++ {
-			lst[i] = trim(lst[i])
-		}
-		val = strings.Join(lst, "\n")
+		val = trim(val)
 		traits = withTrait(traits, "smithy.api#documentation", val)
 	}
 	return traits, ""

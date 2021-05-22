@@ -384,14 +384,12 @@ func (s *Scanner) scanTextBlock(tok Token) Token {
 	for {
 		ch := s.read()
 		if ch == eof {
-			fmt.Println("eof")
 			return tok.undefined("Unexpected end of file while scanning text block")
 		}
 		if ch == '\n' {
 			break
 		}
 		if !IsWhitespace(ch) {
-			fmt.Println("not whitespace:", string(ch))
 			return tok.undefined("Expected newline to start the text block, encountered '" + string(ch) + "'")
 		}
 	}
@@ -472,7 +470,7 @@ func stripCommonPrefix(s string) string {
 				break
 			}
 		}
-		if j < minWhitespace {
+		if j < minWhitespace && j < len(l) {
 			minWhitespace = j
 		}
 	}
@@ -483,7 +481,9 @@ func stripCommonPrefix(s string) string {
 				if i > 0 {
 					ss = ss + "\n"
 				}
-				ss = ss + l[minWhitespace:]
+				if len(l) > minWhitespace {
+					ss = ss + l[minWhitespace:]
+				}
 			}
 			return ss
 		}

@@ -239,7 +239,7 @@ func (w *IdlWriter) EmitShape(name string, shape *Shape) {
 
 func (w *IdlWriter) EmitDocumentation(doc, indent string) {
 	if doc != "" {
-		s := FormatComment("", "/// ", doc, 100, false)
+		s := FormatComment(indent, "/// ", doc, 100, false)
 		w.Emit(s)
 		//		w.Emit("%s@documentation(%q)\n", indent, doc)
 	}
