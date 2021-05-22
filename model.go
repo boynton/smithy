@@ -189,7 +189,7 @@ func (model *Model) Generator(genName string) (Generator, error) {
 	switch genName {
 	case "ast":
 		return new(AstGenerator), nil
-	case "smithy":
+	case "idl":
 		return new(IdlGenerator), nil
 	default:
 		return nil, fmt.Errorf("Unknown generator: %q", genName)

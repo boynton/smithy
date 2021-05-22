@@ -10,7 +10,7 @@ import (
 
 func main() {
 	pVersion := flag.Bool("v", false, "Show api tool version and exit")
-	pGen := flag.String("g", "smithy", "The generator for output")
+	pGen := flag.String("g", "idl", "The generator for output")
 	pOutdir := flag.String("o", "", "The directory to generate output into (defaults to stdout)")
 	flag.Parse()
 	if *pVersion {
