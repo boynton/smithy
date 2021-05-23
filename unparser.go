@@ -7,14 +7,10 @@ import (
 	"strings"
 )
 
-//
-// Fix me: the unparser needs to unparse to a set of files, not a single file. One file for each namespace.
-// When generating to stdio, these files should be concatenated, one per
 const IndentAmount = "    "
 
-//ASTs don't have a preferred namespac, but IDL files do. When going back to IDL, getting the preferred namespace is desirable
-//This project's parser emits metadata for the preferred namespace, but if that is missing, we have to guess. The algorithm here
-//is to prefer the first service's namespace, if present, or the first non-non-smithy, non-aws namespace encountered.
+//ASTs don't have a preferred namespace, but IDL files do. When going back to IDL, getting the preferred namespace is desirable.
+//The algorithm here is to prefer the first service's namespace, if present, or the first non-smithy, non-aws namespace encountered.
 func (ast *AST) NamespaceAndServiceVersion() (string, string, string) {
 	var namespace, name, version string
 	for _, k := range ast.Shapes.Keys() {
@@ -452,7 +448,7 @@ func (w *IdlWriter) EmitUnionShape(name string, shape *Shape) {
 }
 
 func (w *IdlWriter) EmitTraits(traits *Struct, indent string) {
-	//note: documentation has an alternate for ("///"+comment), but then must be before other traits.
+	//note: @documentation is an alternate for ("///"+comment), but then must be before other traits.
 	if traits == nil {
 		return
 	}
@@ -467,7 +463,7 @@ func (w *IdlWriter) EmitTraits(traits *Struct, indent string) {
 		v := traits.Get(k)
 		switch k {
 		case "smithy.api#documentation", "smithy.api#examples":
-			//do nothing
+			//do nothing, handled elsewhere
 		case "smithy.api#sensitive", "smithy.api#required", "smithy.api#readonly", "smithy.api#idempotent":
 			w.EmitBooleanTrait(AsBool(v), w.stripNamespace(k), indent)
 		case "smithy.api#httpLabel", "smithy.api#httpPayload":

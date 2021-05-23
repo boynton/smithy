@@ -127,9 +127,8 @@ type Shape struct {
 	Resources  []*ShapeRef `json:"resources,omitempty"`
 
 	//Operation
-	Input  *ShapeRef `json:"input,omitempty"`
-	Output *ShapeRef `json:"output,omitempty"`
-	//	Errors []*Member `json:"errors,omitempty"`
+	Input  *ShapeRef   `json:"input,omitempty"`
+	Output *ShapeRef   `json:"output,omitempty"`
 	Errors []*ShapeRef `json:"errors,omitempty"`
 
 	//Service
@@ -141,7 +140,6 @@ type ShapeRef struct {
 }
 
 type Member struct {
-	Target string `json:"target"`
-	//	Traits map[string]interface{} `json:"traits,omitempty"`
+	Target string  `json:"target"`
 	Traits *Struct `json:"traits,omitempty"`
 }

@@ -102,24 +102,6 @@ func NewStruct() *Struct {
 	}
 }
 
-/*
-
-func FromStruct(s *Struct) map[string]interface{} {
-	if s == nil {
-		return nil
-	}
-	return s.Bindings
-}
-
-func ToStruct(m map[string]interface{}) *Struct {
-	result := &Struct{Bindings: m}
-	for k, _ := range m { //bug: cannot preserve the order
-		result.keys = append(result.keys, k)
-	}
-	return result
-}
-*/
-
 func (s *Struct) find(key string) int {
 	for i, k := range s.keys {
 		if k == key {
