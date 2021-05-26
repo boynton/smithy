@@ -177,12 +177,12 @@ func (model *Model) Namespaces() []string {
 	return nss
 }
 
-func (model *Model) Generate(genName string, outdir string) error {
+func (model *Model) Generate(genName string, conf *Data) error {
 	gen, err := model.Generator(genName)
 	if err != nil {
 		return err
 	}
-	return gen.Generate(model, outdir)
+	return gen.Generate(model, conf)
 }
 
 func (model *Model) Generator(genName string) (Generator, error) {

@@ -129,7 +129,7 @@ func (ast *AST) ExternalRefs(ns string) []string {
 	return res
 }
 
-func (ast *AST) noteExternalTraitRefs(match string, traits *Struct, refs map[string]bool) {
+func (ast *AST) noteExternalTraitRefs(match string, traits *Data, refs map[string]bool) {
 	if traits != nil {
 		for _, tk := range traits.Keys() {
 			if !strings.HasPrefix(tk, "smithy.api#") && !strings.HasPrefix(tk, match) {
@@ -361,7 +361,7 @@ func (w *IdlWriter) EmitHttpTrait(rv interface{}, indent string) {
 		method = GetString(v, "method")
 		uri = GetString(v, "uri")
 		code = GetInt(v, "code")
-	case *Struct:
+	case *Data:
 		method = AsString(v.Get("method"))
 		uri = AsString(v.Get("uri"))
 		code = AsInt(v.Get("code"))
@@ -447,7 +447,7 @@ func (w *IdlWriter) EmitUnionShape(name string, shape *Shape) {
 	w.Emit("}\n")
 }
 
-func (w *IdlWriter) EmitTraits(traits *Struct, indent string) {
+func (w *IdlWriter) EmitTraits(traits *Data, indent string) {
 	//note: @documentation is an alternate for ("///"+comment), but then must be before other traits.
 	if traits == nil {
 		return
@@ -500,11 +500,11 @@ func (w *IdlWriter) EmitTraits(traits *Struct, indent string) {
 
 func (w *IdlWriter) EmitCustomTrait(k string, v interface{}, indent string) {
 	args := ""
-	if m, ok := v.(*Struct); ok {
+	if m, ok := v.(*Data); ok {
 		if m.Length() > 0 {
 			var lst []string
 			for _, ak := range m.Keys() {
-				av := m.Bindings[ak]
+				av := m.Get(ak)
 				lst = append(lst, fmt.Sprintf("%s: %s", ak, Json(av)))
 			}
 			args = "(\n    " + strings.Join(lst, ",\n    ") + ")"

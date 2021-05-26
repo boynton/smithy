@@ -41,7 +41,7 @@ type Parser struct {
 
 func (p *Parser) Parse() error {
 	var comment string
-	var traits *Struct
+	var traits *Data
 	p.ast = &AST{
 		Smithy: "1.0",
 	}
@@ -427,7 +427,7 @@ func (p *Parser) parseMetadata() error {
 		return err
 	}
 	if p.ast.Metadata == nil {
-		p.ast.Metadata = NewStruct()
+		p.ast.Metadata = NewData()
 	}
 	p.ast.Metadata.Put(key, val)
 	return nil
@@ -566,7 +566,7 @@ func (p *Parser) addShapeDefinition(name string, shape *Shape) error {
 	return nil
 }
 
-func (p *Parser) parseSimpleTypeDef(typeName string, traits *Struct) error {
+func (p *Parser) parseSimpleTypeDef(typeName string, traits *Data) error {
 	tname, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -578,7 +578,7 @@ func (p *Parser) parseSimpleTypeDef(typeName string, traits *Struct) error {
 	return p.addShapeDefinition(tname, shape)
 }
 
-func (p *Parser) parseCollection(sname string, traits *Struct) error {
+func (p *Parser) parseCollection(sname string, traits *Data) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -594,7 +594,7 @@ func (p *Parser) parseCollection(sname string, traits *Struct) error {
 		Type:   sname,
 		Traits: traits,
 	}
-	var mtraits *Struct
+	var mtraits *Data
 	for {
 		tok := p.GetToken()
 		if tok == nil {
@@ -643,7 +643,7 @@ func (p *Parser) parseCollection(sname string, traits *Struct) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseMap(sname string, traits *Struct) error {
+func (p *Parser) parseMap(sname string, traits *Data) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -659,7 +659,7 @@ func (p *Parser) parseMap(sname string, traits *Struct) error {
 		Type:   sname,
 		Traits: traits,
 	}
-	var mtraits *Struct
+	var mtraits *Data
 	for {
 		tok := p.GetToken()
 		if tok == nil {
@@ -721,7 +721,7 @@ func (p *Parser) parseMap(sname string, traits *Struct) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseStructure(traits *Struct) error {
+func (p *Parser) parseStructure(traits *Data) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -740,7 +740,7 @@ func (p *Parser) parseStructure(traits *Struct) error {
 	mems := make(map[string]*Member, 0)
 	var memkeys []string
 	comment := ""
-	var mtraits *Struct
+	var mtraits *Data
 	for {
 		tok := p.GetToken()
 		if tok == nil {
@@ -791,7 +791,7 @@ func (p *Parser) parseStructure(traits *Struct) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseUnion(traits *Struct) error {
+func (p *Parser) parseUnion(traits *Data) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -809,7 +809,7 @@ func (p *Parser) parseUnion(traits *Struct) error {
 	}
 	mems := make(map[string]*Member, 0)
 	var memkeys []string
-	var mtraits *Struct
+	var mtraits *Data
 	for {
 		tok := p.GetToken()
 		if tok == nil {
@@ -853,7 +853,7 @@ func (p *Parser) parseUnion(traits *Struct) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseOperation(traits *Struct) error {
+func (p *Parser) parseOperation(traits *Data) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -964,7 +964,7 @@ func (p *Parser) parseService(comment string) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseResource(traits *Struct) error {
+func (p *Parser) parseResource(traits *Data) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -1107,9 +1107,9 @@ func (p *Parser) expectShapeRef() (*ShapeRef, error) {
 	return ref, nil
 }
 
-func (p *Parser) parseTraitArgs() (*Struct, interface{}, error) {
+func (p *Parser) parseTraitArgs() (*Data, interface{}, error) {
 	var err error
-	args := NewStruct()
+	args := NewData()
 	var literal interface{}
 	tok := p.GetToken()
 	if tok == nil {
@@ -1148,14 +1148,14 @@ func (p *Parser) parseTraitArgs() (*Struct, interface{}, error) {
 	}
 }
 
-func (p *Parser) parseTrait(traits *Struct) (*Struct, error) {
+func (p *Parser) parseTrait(traits *Data) (*Data, error) {
 	tname, err := p.expectShapeId()
 	if err != nil {
 		return traits, err
 	}
 	switch tname {
 	case "idempotent", "required", "httpLabel", "httpPayload", "readonly": //booleans
-		return withTrait(traits, "smithy.api#"+tname, NewStruct()), nil
+		return withTrait(traits, "smithy.api#"+tname, NewData()), nil
 	case "documentation":
 		err := p.expect(OPEN_PAREN)
 		if err != nil {
@@ -1253,7 +1253,7 @@ func (p *Parser) parseTrait(traits *Struct) (*Struct, error) {
 			return withTrait(traits, "smithy.api#trait", lit), nil
 		}
 		if args.Length() == 0 {
-			return withTrait(traits, "smithy.api#trait", NewStruct()), nil
+			return withTrait(traits, "smithy.api#trait", NewData()), nil
 		}
 		return withTrait(traits, "smithy.api#trait", args), nil
 	default:
@@ -1269,17 +1269,17 @@ func (p *Parser) parseTrait(traits *Struct) (*Struct, error) {
 	}
 }
 
-func withTrait(traits *Struct, key string, val interface{}) *Struct {
+func withTrait(traits *Data, key string, val interface{}) *Data {
 	if val != nil {
 		if traits == nil {
-			traits = NewStruct()
+			traits = NewData()
 		}
 		traits.Put(key, val)
 	}
 	return traits
 }
 
-func withCommentTrait(traits *Struct, val string) (*Struct, string) {
+func withCommentTrait(traits *Data, val string) (*Data, string) {
 	if val != "" {
 		val = trim(val)
 		traits = withTrait(traits, "smithy.api#documentation", val)
@@ -1326,12 +1326,7 @@ func (p *Parser) parseLiteralSymbol(tok *Token) (interface{}, error) {
 	}
 }
 func (p *Parser) parseLiteralString(tok *Token) (*string, error) {
-	s := "\"" + tok.Text + "\""
-	q, err := strconv.Unquote(s)
-	if err != nil {
-		return nil, p.Error("Improperly escaped string: " + tok.Text)
-	}
-	return &q, nil
+	return &tok.Text, nil
 }
 
 func (p *Parser) parseLiteralNumber(tok *Token) (interface{}, error) {

@@ -12,7 +12,7 @@ const UnspecifiedVersion = "0.0"
 
 type AST struct {
 	Smithy   string  `json:"smithy"`
-	Metadata *Struct `json:"metadata,omitempty"`
+	Metadata *Data   `json:"metadata,omitempty"`
 	Shapes   *Shapes `json:"shapes,omitempty"`
 }
 
@@ -97,8 +97,8 @@ func (ast *AST) GetShape(id string) *Shape {
 }
 
 type Shape struct {
-	Type   string  `json:"type"`
-	Traits *Struct `json:"traits,omitempty"` //service, resource, operation, apply
+	Type   string `json:"type"`
+	Traits *Data  `json:"traits,omitempty"` //service, resource, operation, apply
 
 	//List and Set
 	Member *Member `json:"member,omitempty"`
@@ -140,6 +140,6 @@ type ShapeRef struct {
 }
 
 type Member struct {
-	Target string  `json:"target"`
-	Traits *Struct `json:"traits,omitempty"`
+	Target string `json:"target"`
+	Traits *Data  `json:"traits,omitempty"`
 }

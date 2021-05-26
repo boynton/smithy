@@ -10,11 +10,12 @@ import (
 )
 
 type Generator interface {
-	Generate(model *Model, out string) error
+	Generate(model *Model, config *Data) error
 }
 
 type BaseGenerator struct {
 	Model          *Model
+	Config         *Data
 	OutDir         string
 	ForceOverwrite bool
 	buf            bytes.Buffer
@@ -57,7 +58,8 @@ type AstGenerator struct {
 	BaseGenerator
 }
 
-func (gen *AstGenerator) Generate(model *Model, outdir string) error {
+func (gen *AstGenerator) Generate(model *Model, config *Data) error {
+	outdir := config.GetString("outdir")
 	gen.Model = model
 	fname := "model.json"
 	s := Pretty(gen.Model.ast)
@@ -77,7 +79,8 @@ type IdlGenerator struct {
 	BaseGenerator
 }
 
-func (gen *IdlGenerator) Generate(model *Model, outdir string) error {
+func (gen *IdlGenerator) Generate(model *Model, config *Data) error {
+	outdir := config.GetString("outdir")
 	//generate one file per namespace. For outdir == "", concatenate with separator indicating intended filename
 	gen.Model = model
 	//fixme: preserve metadata. Smithy IDL is problematic for that, since metadata is not namespaced, and gets merged

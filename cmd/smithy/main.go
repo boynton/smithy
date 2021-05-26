@@ -9,24 +9,13 @@ import (
 )
 
 func main() {
+	conf := smithy.NewData()
 	pVersion := flag.Bool("v", false, "Show api tool version and exit")
 	pGen := flag.String("g", "idl", "The generator for output")
 	pOutdir := flag.String("o", "", "The directory to generate output into (defaults to stdout)")
 	flag.Parse()
 	if *pVersion {
 		fmt.Printf("Smithy tool %s [%s]\n", smithy.ToolVersion, "https://github.com/boynton/smithy")
-		os.Exit(0)
-	}
-	if false {
-		s := smithy.NewStruct()
-		s.Put("foo", 23)
-		s.Put("bar", "blah")
-		s.Put("more", []string{"one", "two", "three"})
-		fmt.Println("s:", s)
-		fmt.Println(smithy.Pretty(s))
-		s.Put("hey", true)
-		fmt.Println(smithy.Pretty(s))
-		fmt.Println(smithy.Pretty(s.Bindings))
 		os.Exit(0)
 	}
 	gen := *pGen
@@ -42,9 +31,24 @@ func main() {
 		fmt.Println(err)
 		os.Exit(2)
 	}
-	err = model.Generate(gen, outdir)
+	conf.Put("outdir", outdir)
+	generator, err := Generator(gen)
+	if err == nil {
+		err = generator.Generate(model, conf)
+	}
 	if err != nil {
 		fmt.Printf("*** %v\n", err)
 		os.Exit(4)
+	}
+}
+
+func Generator(genName string) (smithy.Generator, error) {
+	switch genName {
+	case "ast":
+		return new(smithy.AstGenerator), nil
+	case "idl":
+		return new(smithy.IdlGenerator), nil
+	default:
+		return nil, fmt.Errorf("Unknown generator: %q", genName)
 	}
 }
