@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+
+	"github.com/boynton/smithy/data"
 )
 
 const SmithyVersion = "1.0"
@@ -11,9 +13,9 @@ const UnspecifiedNamespace = "example"
 const UnspecifiedVersion = "0.0"
 
 type AST struct {
-	Smithy   string  `json:"smithy"`
-	Metadata *Data   `json:"metadata,omitempty"`
-	Shapes   *Shapes `json:"shapes,omitempty"`
+	Smithy   string       `json:"smithy"`
+	Metadata *data.Object `json:"metadata,omitempty"`
+	Shapes   *Shapes      `json:"shapes,omitempty"`
 }
 
 // a Shapes object is a map from Shape ID to *Shape. It preserves the order of its keys, unlike a Go map
@@ -28,14 +30,14 @@ func newShapes() *Shapes {
 	}
 }
 
-func (s *Shapes) UnmarshalJSON(data []byte) error {
-	keys, err := jsonKeysInOrder(data)
+func (s *Shapes) UnmarshalJSON(raw []byte) error {
+	keys, err := data.JsonKeysInOrder(raw)
 	if err != nil {
 		return err
 	}
 	shapes := newShapes()
 	shapes.keys = keys
-	err = json.Unmarshal(data, &shapes.bindings)
+	err = json.Unmarshal(raw, &shapes.bindings)
 	if err != nil {
 		return err
 	}
@@ -97,8 +99,8 @@ func (ast *AST) GetShape(id string) *Shape {
 }
 
 type Shape struct {
-	Type   string `json:"type"`
-	Traits *Data  `json:"traits,omitempty"` //service, resource, operation, apply
+	Type   string       `json:"type"`
+	Traits *data.Object `json:"traits,omitempty"` //service, resource, operation, apply
 
 	//List and Set
 	Member *Member `json:"member,omitempty"`
@@ -140,6 +142,6 @@ type ShapeRef struct {
 }
 
 type Member struct {
-	Target string `json:"target"`
-	Traits *Data  `json:"traits,omitempty"`
+	Target string       `json:"target"`
+	Traits *data.Object `json:"traits,omitempty"`
 }

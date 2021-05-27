@@ -6,11 +6,13 @@ import (
 	"os"
 
 	"github.com/boynton/smithy"
+	"github.com/boynton/smithy/data"
 )
 
 func main() {
-	conf := smithy.NewData()
+	conf := data.NewObject()
 	pVersion := flag.Bool("v", false, "Show api tool version and exit")
+	pForce := flag.Bool("f", false, "Force overwrite if output file exists")
 	pGen := flag.String("g", "idl", "The generator for output")
 	pOutdir := flag.String("o", "", "The directory to generate output into (defaults to stdout)")
 	flag.Parse()
@@ -32,6 +34,7 @@ func main() {
 		os.Exit(2)
 	}
 	conf.Put("outdir", outdir)
+	conf.Put("force", *pForce)
 	generator, err := Generator(gen)
 	if err == nil {
 		err = generator.Generate(model, conf)

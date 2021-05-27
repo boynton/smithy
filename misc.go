@@ -2,12 +2,25 @@ package smithy
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
-	"path/filepath"
-	"reflect"
 	"strings"
 )
+
+var Verbose bool
+
+func Debug(args ...interface{}) {
+	if Verbose {
+		max := len(args) - 1
+		for i := 0; i < max; i++ {
+			fmt.Print(str(args[i]))
+		}
+		fmt.Println(str(args[max]))
+	}
+}
+
+func str(arg interface{}) string {
+	return fmt.Sprintf("%v", arg)
+}
 
 func Capitalize(s string) string {
 	if s == "" {
@@ -67,61 +80,6 @@ func IsLowercaseLetter(ch rune) bool {
 	return ch >= 'a' && ch <= 'z'
 }
 
-func Kind(v interface{}) string {
-	return fmt.Sprintf("%v", reflect.ValueOf(v).Kind())
-}
-
-var Verbose bool
-
-func Debug(args ...interface{}) {
-	if Verbose {
-		max := len(args) - 1
-		for i := 0; i < max; i++ {
-			fmt.Print(str(args[i]))
-		}
-		fmt.Println(str(args[max]))
-	}
-}
-
-func str(arg interface{}) string {
-	return fmt.Sprintf("%v", arg)
-}
-
-func Equivalent(obj1 interface{}, obj2 interface{}) bool {
-	return Pretty(obj1) == Pretty(obj2)
-}
-
-func Pretty(obj interface{}) string {
-	buf := new(bytes.Buffer)
-	enc := json.NewEncoder(buf)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(&obj); err != nil {
-		return fmt.Sprint(obj)
-	}
-	return string(buf.String())
-}
-
-func Json(obj interface{}) string {
-	buf := new(bytes.Buffer)
-	enc := json.NewEncoder(buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(&obj); err != nil {
-		return fmt.Sprint(obj)
-	}
-	return trimRightSpace(string(buf.String()))
-}
-
-func BaseFileName(path string) string {
-	fname := filepath.Base(path)
-	//	fname := FileName(path)
-	n := strings.LastIndex(fname, ".")
-	if n < 1 {
-		return fname
-	}
-	return fname[:n]
-}
-
 func FormatComment(indent, prefix, comment string, maxcol int, extraPad bool) string {
 	left := len(indent)
 	if maxcol <= left && strings.Index(comment, "\n") < 0 {
@@ -171,4 +129,16 @@ func FormatComment(indent, prefix, comment string, maxcol int, extraPad bool) st
 		pad = tab + emptyPrefix + "\n"
 	}
 	return pad + buf.String() + pad
+}
+
+func TrimSpace(s string) string {
+	return TrimLeftSpace(TrimRightSpace(s))
+}
+
+func TrimRightSpace(s string) string {
+	return strings.TrimRight(s, " \t\n\v\f\r")
+}
+
+func TrimLeftSpace(s string) string {
+	return strings.TrimLeft(s, " \t\n\v\f\r")
 }

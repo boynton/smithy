@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+
+	"github.com/boynton/smithy/data"
 )
 
 const IndentAmount = "    "
@@ -47,7 +49,7 @@ func (ast *AST) IDL(ns string) string {
 		w.Emit("\n")
 		for _, k := range ast.Metadata.Keys() {
 			v := ast.Metadata.Get(k)
-			w.Emit("metadata %s = %s", k, Pretty(v))
+			w.Emit("metadata %s = %s", k, data.Pretty(v))
 		}
 	}
 	w.Emit("\nnamespace %s\n", ns)
@@ -129,7 +131,7 @@ func (ast *AST) ExternalRefs(ns string) []string {
 	return res
 }
 
-func (ast *AST) noteExternalTraitRefs(match string, traits *Data, refs map[string]bool) {
+func (ast *AST) noteExternalTraitRefs(match string, traits *data.Object, refs map[string]bool) {
 	if traits != nil {
 		for _, tk := range traits.Keys() {
 			if !strings.HasPrefix(tk, "smithy.api#") && !strings.HasPrefix(tk, match) {
@@ -229,7 +231,7 @@ func (w *IdlWriter) EmitShape(name string, shape *Shape) {
 	case "operation":
 		w.EmitOperationShape(name, shape)
 	default:
-		panic("fix: shape " + name + " of type " + Pretty(shape))
+		panic("fix: shape " + name + " of type " + data.Pretty(shape))
 	}
 }
 
@@ -258,35 +260,35 @@ func (w *IdlWriter) EmitStringTrait(v, tname, indent string) {
 }
 
 func (w *IdlWriter) EmitLengthTrait(v interface{}, indent string) {
-	l := AsMap(v)
-	min := Get(l, "min")
-	max := Get(l, "max")
+	l := data.AsMap(v)
+	min := data.Get(l, "min")
+	max := data.Get(l, "max")
 	if min != nil && max != nil {
-		w.Emit("@length(min: %d, max: %d)\n", AsInt(min), AsInt(max))
+		w.Emit("@length(min: %d, max: %d)\n", data.AsInt(min), data.AsInt(max))
 	} else if max != nil {
-		w.Emit("@length(max: %d)\n", AsInt(max))
+		w.Emit("@length(max: %d)\n", data.AsInt(max))
 	} else if min != nil {
-		w.Emit("@length(min: %d)\n", AsInt(min))
+		w.Emit("@length(min: %d)\n", data.AsInt(min))
 	}
 }
 
 func (w *IdlWriter) EmitRangeTrait(v interface{}, indent string) {
-	l := AsMap(v)
-	min := Get(l, "min")
-	max := Get(l, "max")
+	l := data.AsMap(v)
+	min := data.Get(l, "min")
+	max := data.Get(l, "max")
 	if min != nil && max != nil {
-		w.Emit("@range(min: %v, max: %v)\n", AsDecimal(min), AsDecimal(max))
+		w.Emit("@range(min: %v, max: %v)\n", data.AsDecimal(min), data.AsDecimal(max))
 	} else if max != nil {
-		w.Emit("@range(max: %v)\n", AsDecimal(max))
+		w.Emit("@range(max: %v)\n", data.AsDecimal(max))
 	} else if min != nil {
-		w.Emit("@range(min: %v)\n", AsDecimal(min))
+		w.Emit("@range(min: %v)\n", data.AsDecimal(min))
 	}
 }
 
 func (w *IdlWriter) EmitEnumTrait(v interface{}, indent string) {
 	en := v.([]interface{})
 	if len(en) > 0 {
-		s := Pretty(en)
+		s := data.Pretty(en)
 		slen := len(s)
 		if slen > 0 && s[slen-1] == '\n' {
 			s = s[:slen-1]
@@ -296,14 +298,14 @@ func (w *IdlWriter) EmitEnumTrait(v interface{}, indent string) {
 }
 
 func (w *IdlWriter) EmitTraitTrait(v interface{}) {
-	l := AsMap(v)
+	l := data.AsMap(v)
 	if l != nil {
 		var lst []string
-		selector := GetString(l, "selector")
+		selector := data.GetString(l, "selector")
 		if selector != "" {
 			lst = append(lst, fmt.Sprintf("selector: %q", selector))
 		}
-		conflicts := GetStringArray(l, "conflicts")
+		conflicts := data.GetStringArray(l, "conflicts")
 		if conflicts != nil {
 			s := "["
 			for _, e := range conflicts {
@@ -315,7 +317,7 @@ func (w *IdlWriter) EmitTraitTrait(v interface{}) {
 			s = s + "]"
 			lst = append(lst, fmt.Sprintf("conflicts: %s", s))
 		}
-		structurallyExclusive := GetString(l, "structurallyExclusive")
+		structurallyExclusive := data.GetString(l, "structurallyExclusive")
 		if structurallyExclusive != "" {
 			lst = append(lst, fmt.Sprintf("selector: %q", structurallyExclusive))
 		}
@@ -358,13 +360,13 @@ func (w *IdlWriter) EmitHttpTrait(rv interface{}, indent string) {
 	code := 0
 	switch v := rv.(type) {
 	case map[string]interface{}:
-		method = GetString(v, "method")
-		uri = GetString(v, "uri")
-		code = GetInt(v, "code")
-	case *Data:
-		method = AsString(v.Get("method"))
-		uri = AsString(v.Get("uri"))
-		code = AsInt(v.Get("code"))
+		method = data.GetString(v, "method")
+		uri = data.GetString(v, "uri")
+		code = data.GetInt(v, "code")
+	case *data.Object:
+		method = data.AsString(v.Get("method"))
+		uri = data.AsString(v.Get("uri"))
+		code = data.AsInt(v.Get("code"))
 	default:
 		panic("What?!")
 	}
@@ -447,7 +449,7 @@ func (w *IdlWriter) EmitUnionShape(name string, shape *Shape) {
 	w.Emit("}\n")
 }
 
-func (w *IdlWriter) EmitTraits(traits *Data, indent string) {
+func (w *IdlWriter) EmitTraits(traits *data.Object, indent string) {
 	//note: @documentation is an alternate for ("///"+comment), but then must be before other traits.
 	if traits == nil {
 		return
@@ -456,7 +458,7 @@ func (w *IdlWriter) EmitTraits(traits *Data, indent string) {
 		v := traits.Get(k)
 		switch k {
 		case "smithy.api#documentation":
-			w.EmitDocumentation(AsString(v), indent)
+			w.EmitDocumentation(data.AsString(v), indent)
 		}
 	}
 	for _, k := range traits.Keys() {
@@ -465,11 +467,11 @@ func (w *IdlWriter) EmitTraits(traits *Data, indent string) {
 		case "smithy.api#documentation", "smithy.api#examples":
 			//do nothing, handled elsewhere
 		case "smithy.api#sensitive", "smithy.api#required", "smithy.api#readonly", "smithy.api#idempotent":
-			w.EmitBooleanTrait(AsBool(v), w.stripNamespace(k), indent)
+			w.EmitBooleanTrait(data.AsBool(v), w.stripNamespace(k), indent)
 		case "smithy.api#httpLabel", "smithy.api#httpPayload":
-			w.EmitBooleanTrait(AsBool(v), w.stripNamespace(k), indent)
+			w.EmitBooleanTrait(data.AsBool(v), w.stripNamespace(k), indent)
 		case "smithy.api#httpQuery", "smithy.api#httpHeader":
-			w.EmitStringTrait(AsString(v), w.stripNamespace(k), indent)
+			w.EmitStringTrait(data.AsString(v), w.stripNamespace(k), indent)
 		case "smithy.api#deprecated":
 			w.EmitDeprecatedTrait(v, indent)
 		case "smithy.api#http":
@@ -485,7 +487,7 @@ func (w *IdlWriter) EmitTraits(traits *Data, indent string) {
 		case "smithy.api#tags":
 			w.EmitTagsTrait(v, indent)
 		case "smithy.api#pattern", "smithy.api#error":
-			w.EmitStringTrait(AsString(v), w.stripNamespace(k), indent)
+			w.EmitStringTrait(data.AsString(v), w.stripNamespace(k), indent)
 		case "aws.protocols#restJson1":
 			w.Emit("%s@%s\n", indent, k) //FIXME for the non-default attributes
 		case "smithy.api#paginated":
@@ -500,12 +502,12 @@ func (w *IdlWriter) EmitTraits(traits *Data, indent string) {
 
 func (w *IdlWriter) EmitCustomTrait(k string, v interface{}, indent string) {
 	args := ""
-	if m, ok := v.(*Data); ok {
+	if m, ok := v.(*data.Object); ok {
 		if m.Length() > 0 {
 			var lst []string
 			for _, ak := range m.Keys() {
 				av := m.Get(ak)
-				lst = append(lst, fmt.Sprintf("%s: %s", ak, Json(av)))
+				lst = append(lst, fmt.Sprintf("%s: %s", ak, data.Json(av)))
 			}
 			args = "(\n    " + strings.Join(lst, ",\n    ") + ")"
 		}
@@ -526,10 +528,10 @@ func (w *IdlWriter) EmitPaginatedTrait(d interface{}) {
 }
 
 func (w *IdlWriter) EmitExamplesTrait(opname string, raw interface{}) {
-	switch data := raw.(type) {
+	switch dat := raw.(type) {
 	case []map[string]interface{}:
 		target := w.stripNamespace(opname)
-		formatted := Pretty(data)
+		formatted := data.Pretty(dat)
 		if strings.HasSuffix(formatted, "\n") {
 			formatted = formatted[:len(formatted)-1]
 		}

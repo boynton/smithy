@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/boynton/smithy/data"
 )
 
 type Model struct {
@@ -14,7 +16,11 @@ type Model struct {
 }
 
 func (model *Model) String() string {
-	return Pretty(model.ast)
+	return data.Pretty(model.ast)
+}
+
+func (model *Model) GetAst() *AST {
+	return model.ast
 }
 
 func AssembleModel(paths []string) (*Model, error) {
@@ -177,7 +183,7 @@ func (model *Model) Namespaces() []string {
 	return nss
 }
 
-func (model *Model) Generate(genName string, conf *Data) error {
+func (model *Model) Generate(genName string, conf *data.Object) error {
 	gen, err := model.Generator(genName)
 	if err != nil {
 		return err

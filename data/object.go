@@ -1,4 +1,4 @@
-package smithy
+package data
 
 import (
 	"bytes"
@@ -8,12 +8,12 @@ import (
 )
 
 //Data - a map that preserves the order of the keys (which are always converted to strings). Values are anything.
-type Data struct {
+type Object struct {
 	keys     []string
 	bindings map[string]interface{}
 }
 
-func jsonKeysInOrder(data []byte) ([]string, error) {
+func JsonKeysInOrder(data []byte) ([]string, error) {
 	var end = fmt.Errorf("invalid end of array or object")
 
 	var skipValue func(d *json.Decoder) error
@@ -61,12 +61,12 @@ func jsonKeysInOrder(data []byte) ([]string, error) {
 	}
 }
 
-func (s *Data) UnmarshalJSON(data []byte) error {
-	keys, err := jsonKeysInOrder(data)
+func (s *Object) UnmarshalJSON(data []byte) error {
+	keys, err := JsonKeysInOrder(data)
 	if err != nil {
 		return err
 	}
-	str := NewData()
+	str := NewObject()
 	str.keys = keys
 	err = json.Unmarshal(data, &str.bindings)
 	if err != nil {
@@ -76,11 +76,11 @@ func (s *Data) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (s *Data) String() string {
+func (s *Object) String() string {
 	return Json(s)
 }
 
-func (s Data) MarshalJSON() ([]byte, error) {
+func (s Object) MarshalJSON() ([]byte, error) {
 	buffer := bytes.NewBufferString("{")
 	for i, key := range s.keys {
 		value := s.bindings[key]
@@ -97,13 +97,13 @@ func (s Data) MarshalJSON() ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
-func NewData() *Data {
-	return &Data{
+func NewObject() *Object {
+	return &Object{
 		bindings: make(map[string]interface{}, 0),
 	}
 }
 
-func (s *Data) find(key string) int {
+func (s *Object) find(key string) int {
 	for i, k := range s.keys {
 		if k == key {
 			return i
@@ -112,29 +112,29 @@ func (s *Data) find(key string) int {
 	return -1
 }
 
-func (s *Data) Has(key string) bool {
+func (s *Object) Has(key string) bool {
 	if _, ok := s.bindings[key]; ok {
 		return true
 	}
 	return false
 }
 
-func (s *Data) Get(key string) interface{} {
+func (s *Object) Get(key string) interface{} {
 	return s.bindings[key]
 }
 
-func (s *Data) Put(key string, val interface{}) {
+func (s *Object) Put(key string, val interface{}) {
 	if _, ok := s.bindings[key]; !ok {
 		s.keys = append(s.keys, key)
 	}
 	s.bindings[key] = val
 }
 
-func (s *Data) Keys() []string {
+func (s *Object) Keys() []string {
 	return s.keys
 }
 
-func (s *Data) Length() int {
+func (s *Object) Length() int {
 	if s == nil || s.keys == nil {
 		return 0
 	}
@@ -153,28 +153,28 @@ func ToString(obj interface{}) string {
 	return string(s)
 }
 
-func (s *Data) GetString(key string) string {
+func (s *Object) GetString(key string) string {
 	return AsString(s.Get(key))
 }
-func (s *Data) GetStringArray(key string) []string {
+func (s *Object) GetStringArray(key string) []string {
 	return AsStringArray(s.Get(key))
 }
-func (s *Data) GetBool(key string) bool {
+func (s *Object) GetBool(key string) bool {
 	return AsBool(s.Get(key))
 }
-func (s *Data) GetInt(key string) int {
+func (s *Object) GetInt(key string) int {
 	return AsInt(s.Get(key))
 }
-func (s *Data) GetInt64(key string) int64 {
+func (s *Object) GetInt64(key string) int64 {
 	return AsInt64(s.Get(key))
 }
-func (s *Data) GetArray(key string) []interface{} {
+func (s *Object) GetArray(key string) []interface{} {
 	return AsArray(s.Get(key))
 }
-func (s *Data) GetMap(key string) map[string]interface{} {
+func (s *Object) GetMap(key string) map[string]interface{} {
 	return AsMap(s.Get(key))
 }
-func (s *Data) GetDecimal(key string) *Decimal {
+func (s *Object) GetDecimal(key string) *Decimal {
 	return AsDecimal(s.Get(key))
 }
 
@@ -183,7 +183,7 @@ func AsMap(v interface{}) map[string]interface{} {
 		switch m := v.(type) {
 		case map[string]interface{}:
 			return m
-		case *Data:
+		case *Object:
 			return m.bindings
 		}
 	}

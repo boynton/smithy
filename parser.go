@@ -5,6 +5,8 @@ import (
 	"io/ioutil"
 	"strconv"
 	"strings"
+
+	"github.com/boynton/smithy/data"
 )
 
 func parse(path string) (*AST, error) {
@@ -41,7 +43,7 @@ type Parser struct {
 
 func (p *Parser) Parse() error {
 	var comment string
-	var traits *Data
+	var traits *data.Object
 	p.ast = &AST{
 		Smithy: "1.0",
 	}
@@ -250,13 +252,13 @@ func (p *Parser) assertString(tok *Token) (string, error) {
 	return tok.Text, p.Error(fmt.Sprintf("Expected string, found %v", tok.Type))
 }
 
-func (p *Parser) ExpectNumber() (*Decimal, error) {
+func (p *Parser) ExpectNumber() (*data.Decimal, error) {
 	tok := p.GetToken()
 	if tok == nil {
 		return nil, p.EndOfFileError()
 	}
 	if tok.IsNumeric() {
-		return ParseDecimal(tok.Text)
+		return data.ParseDecimal(tok.Text)
 	}
 	return nil, p.Error(fmt.Sprintf("Expected number, found %v", tok.Type))
 }
@@ -381,23 +383,11 @@ func (p *Parser) ExpectIdentifierMap() (map[string]string, error) {
 	return items, nil
 }
 
-func trim(s string) string {
-	return trimLeftSpace(trimRightSpace(s))
-}
-
-func trimRightSpace(s string) string {
-	return strings.TrimRight(s, " \t\n\v\f\r")
-}
-
-func trimLeftSpace(s string) string {
-	return strings.TrimLeft(s, " \t\n\v\f\r")
-}
-
 func (p *Parser) MergeComment(comment1 string, comment2 string) string {
 	if comment1 == "" {
-		return trimLeftSpace(trimRightSpace(comment2))
+		return TrimSpace(comment2)
 	}
-	return comment1 + "\n" + trimLeftSpace(trimRightSpace(comment2))
+	return comment1 + "\n" + TrimSpace(comment2)
 }
 
 func (p *Parser) Error(msg string) error {
@@ -427,7 +417,7 @@ func (p *Parser) parseMetadata() error {
 		return err
 	}
 	if p.ast.Metadata == nil {
-		p.ast.Metadata = NewData()
+		p.ast.Metadata = data.NewObject()
 	}
 	p.ast.Metadata.Put(key, val)
 	return nil
@@ -566,7 +556,7 @@ func (p *Parser) addShapeDefinition(name string, shape *Shape) error {
 	return nil
 }
 
-func (p *Parser) parseSimpleTypeDef(typeName string, traits *Data) error {
+func (p *Parser) parseSimpleTypeDef(typeName string, traits *data.Object) error {
 	tname, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -578,7 +568,7 @@ func (p *Parser) parseSimpleTypeDef(typeName string, traits *Data) error {
 	return p.addShapeDefinition(tname, shape)
 }
 
-func (p *Parser) parseCollection(sname string, traits *Data) error {
+func (p *Parser) parseCollection(sname string, traits *data.Object) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -594,7 +584,7 @@ func (p *Parser) parseCollection(sname string, traits *Data) error {
 		Type:   sname,
 		Traits: traits,
 	}
-	var mtraits *Data
+	var mtraits *data.Object
 	for {
 		tok := p.GetToken()
 		if tok == nil {
@@ -643,7 +633,7 @@ func (p *Parser) parseCollection(sname string, traits *Data) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseMap(sname string, traits *Data) error {
+func (p *Parser) parseMap(sname string, traits *data.Object) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -659,7 +649,7 @@ func (p *Parser) parseMap(sname string, traits *Data) error {
 		Type:   sname,
 		Traits: traits,
 	}
-	var mtraits *Data
+	var mtraits *data.Object
 	for {
 		tok := p.GetToken()
 		if tok == nil {
@@ -721,7 +711,7 @@ func (p *Parser) parseMap(sname string, traits *Data) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseStructure(traits *Data) error {
+func (p *Parser) parseStructure(traits *data.Object) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -740,7 +730,7 @@ func (p *Parser) parseStructure(traits *Data) error {
 	mems := make(map[string]*Member, 0)
 	var memkeys []string
 	comment := ""
-	var mtraits *Data
+	var mtraits *data.Object
 	for {
 		tok := p.GetToken()
 		if tok == nil {
@@ -791,7 +781,7 @@ func (p *Parser) parseStructure(traits *Data) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseUnion(traits *Data) error {
+func (p *Parser) parseUnion(traits *data.Object) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -809,7 +799,7 @@ func (p *Parser) parseUnion(traits *Data) error {
 	}
 	mems := make(map[string]*Member, 0)
 	var memkeys []string
-	var mtraits *Data
+	var mtraits *data.Object
 	for {
 		tok := p.GetToken()
 		if tok == nil {
@@ -853,7 +843,7 @@ func (p *Parser) parseUnion(traits *Data) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseOperation(traits *Data) error {
+func (p *Parser) parseOperation(traits *data.Object) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -964,7 +954,7 @@ func (p *Parser) parseService(comment string) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseResource(traits *Data) error {
+func (p *Parser) parseResource(traits *data.Object) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -1107,9 +1097,9 @@ func (p *Parser) expectShapeRef() (*ShapeRef, error) {
 	return ref, nil
 }
 
-func (p *Parser) parseTraitArgs() (*Data, interface{}, error) {
+func (p *Parser) parseTraitArgs() (*data.Object, interface{}, error) {
 	var err error
-	args := NewData()
+	args := data.NewObject()
 	var literal interface{}
 	tok := p.GetToken()
 	if tok == nil {
@@ -1148,14 +1138,14 @@ func (p *Parser) parseTraitArgs() (*Data, interface{}, error) {
 	}
 }
 
-func (p *Parser) parseTrait(traits *Data) (*Data, error) {
+func (p *Parser) parseTrait(traits *data.Object) (*data.Object, error) {
 	tname, err := p.expectShapeId()
 	if err != nil {
 		return traits, err
 	}
 	switch tname {
 	case "idempotent", "required", "httpLabel", "httpPayload", "readonly": //booleans
-		return withTrait(traits, "smithy.api#"+tname, NewData()), nil
+		return withTrait(traits, "smithy.api#"+tname, data.NewObject()), nil
 	case "documentation":
 		err := p.expect(OPEN_PAREN)
 		if err != nil {
@@ -1253,7 +1243,7 @@ func (p *Parser) parseTrait(traits *Data) (*Data, error) {
 			return withTrait(traits, "smithy.api#trait", lit), nil
 		}
 		if args.Length() == 0 {
-			return withTrait(traits, "smithy.api#trait", NewData()), nil
+			return withTrait(traits, "smithy.api#trait", data.NewObject()), nil
 		}
 		return withTrait(traits, "smithy.api#trait", args), nil
 	default:
@@ -1269,19 +1259,19 @@ func (p *Parser) parseTrait(traits *Data) (*Data, error) {
 	}
 }
 
-func withTrait(traits *Data, key string, val interface{}) *Data {
+func withTrait(traits *data.Object, key string, val interface{}) *data.Object {
 	if val != nil {
 		if traits == nil {
-			traits = NewData()
+			traits = data.NewObject()
 		}
 		traits.Put(key, val)
 	}
 	return traits
 }
 
-func withCommentTrait(traits *Data, val string) (*Data, string) {
+func withCommentTrait(traits *data.Object, val string) (*data.Object, string) {
 	if val != "" {
-		val = trim(val)
+		val = TrimSpace(val)
 		traits = withTrait(traits, "smithy.api#documentation", val)
 	}
 	return traits, ""
@@ -1330,7 +1320,7 @@ func (p *Parser) parseLiteralString(tok *Token) (*string, error) {
 }
 
 func (p *Parser) parseLiteralNumber(tok *Token) (interface{}, error) {
-	num, err := ParseDecimal(tok.Text)
+	num, err := data.ParseDecimal(tok.Text)
 	if err != nil {
 		return nil, p.Error(fmt.Sprintf("Not a valid number: %s", tok.Text))
 	}

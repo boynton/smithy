@@ -1,5 +1,5 @@
 // Decimal is a big.Float equivalent that marshals to/from JSON.
-package smithy
+package data
 
 import (
 	"fmt"
