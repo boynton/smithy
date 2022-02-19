@@ -487,7 +487,10 @@ func (p *Parser) expectShapeId() (string, error) {
 			p.UngetToken()
 			break
 		}
-		ns = ident + "."
+		if ns == "" {
+			ns = ident
+		}			
+		ns = ns + "."
 		ident = ""
 		txt, err = p.ExpectIdentifier()
 		if err != nil {
@@ -727,8 +730,7 @@ func (p *Parser) parseStructure(traits *data.Object) error {
 		Type:   "structure",
 		Traits: traits,
 	}
-	mems := make(map[string]*Member, 0)
-	var memkeys []string
+	mems := newMembers()
 	comment := ""
 	var mtraits *data.Object
 	for {
@@ -762,11 +764,10 @@ func (p *Parser) parseStructure(traits *data.Object) error {
 				mtraits, comment = withCommentTrait(mtraits, comment)
 				comment = ""
 			}
-			memkeys = append(memkeys, fname)
-			mems[fname] = &Member{
+			mems.Put(fname, &Member{
 				Target: p.ensureNamespaced(ftype),
 				Traits: mtraits,
-			}
+			})
 			mtraits = nil
 		} else if tok.Type == LINE_COMMENT {
 			if strings.HasPrefix(tok.Text, "/") { //a triple slash means doc comment
@@ -777,7 +778,6 @@ func (p *Parser) parseStructure(traits *data.Object) error {
 		}
 	}
 	shape.Members = mems
-	shape.memberKeys = memkeys
 	return p.addShapeDefinition(name, shape)
 }
 
@@ -797,8 +797,7 @@ func (p *Parser) parseUnion(traits *data.Object) error {
 		Type:   "union",
 		Traits: traits,
 	}
-	mems := make(map[string]*Member, 0)
-	var memkeys []string
+	mems := newMembers()
 	var mtraits *data.Object
 	for {
 		tok := p.GetToken()
@@ -828,18 +827,16 @@ func (p *Parser) parseUnion(traits *data.Object) error {
 				return err
 			}
 			err = p.ignore(COMMA)
-			memkeys = append(memkeys, fname)
-			mems[fname] = &Member{
+			mems.Put(fname, &Member{
 				Target: p.ensureNamespaced(ftype),
 				Traits: mtraits,
-			}
+			})
 			mtraits = nil
 		} else {
 			return p.SyntaxError()
 		}
 	}
 	shape.Members = mems
-	shape.memberKeys = memkeys
 	return p.addShapeDefinition(name, shape)
 }
 
@@ -869,6 +866,9 @@ func (p *Parser) parseOperation(traits *data.Object) error {
 		}
 		if tok.Type == CLOSE_BRACE {
 			break
+		}
+		if tok.Type == LINE_COMMENT {
+			continue
 		}
 		if tok.Type != COLON {
 			p.UngetToken()
@@ -1114,6 +1114,9 @@ func (p *Parser) parseTraitArgs() (*data.Object, interface{}, error) {
 			if tok.Type == CLOSE_PAREN {
 				return args, literal, nil
 			}
+			if tok.Type == LINE_COMMENT {
+				continue
+			}
 			if tok.Type == SYMBOL {
 				p.ignore(COLON)
 				val, err := p.parseLiteralValue()
@@ -1337,6 +1340,9 @@ func (p *Parser) parseLiteralArray() (interface{}, error) {
 		if tok.Type != NEWLINE {
 			if tok.Type == CLOSE_BRACKET {
 				return ary, nil
+			}
+			if tok.Type == LINE_COMMENT {
+				continue
 			}
 			if tok.Type != COMMA {
 				obj, err := p.parseLiteral(tok)

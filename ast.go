@@ -98,6 +98,75 @@ func (ast *AST) GetShape(id string) *Shape {
 	return ast.Shapes.Get(id)
 }
 
+// a Members object is a map from string to *Member. It preserves the order of its keys, unlike a Go map
+type Members struct {
+	keys     []string
+	bindings map[string]*Member
+}
+
+func newMembers() *Members {
+	return &Members{
+		bindings: make(map[string]*Member, 0),
+	}
+}
+
+func (m *Members) UnmarshalJSON(raw []byte) error {
+	keys, err := data.JsonKeysInOrder(raw)
+	if err != nil {
+		return err
+	}
+	members := newMembers()
+	members.keys = keys
+	err = json.Unmarshal(raw, &members.bindings)
+	if err != nil {
+		return err
+	}
+	*m = *members
+	return nil
+}
+
+func (m Members) MarshalJSON() ([]byte, error) {
+	buffer := bytes.NewBufferString("{")
+	for i, key := range m.keys {
+		value := m.bindings[key]
+		if i > 0 {
+			buffer.WriteString(",")
+		}
+		jsonValue, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		buffer.WriteString(fmt.Sprintf("%q:%s", key, string(jsonValue)))
+	}
+	buffer.WriteString("}")
+	return buffer.Bytes(), nil
+}
+
+func (m *Members) Put(key string, val *Member) {
+	if _, ok := m.bindings[key]; !ok {
+		m.keys = append(m.keys, key)
+	}
+	m.bindings[key] = val
+}
+
+func (m *Members) Get(key string) *Member {
+	return m.bindings[key]
+}
+
+func (m *Members) Keys() []string {
+	if m != nil {
+		return m.keys
+	}
+	return nil
+}
+
+func (m *Members) Length() int {
+	if m == nil || m.keys == nil {
+		return 0
+	}
+	return len(m.keys)
+}
+
 type Shape struct {
 	Type   string       `json:"type"`
 	Traits *data.Object `json:"traits,omitempty"` //service, resource, operation, apply
@@ -110,8 +179,7 @@ type Shape struct {
 	Value *Member `json:"value,omitempty"`
 
 	//Structure and Union
-	Members    map[string]*Member `json:"members,omitempty"` //keys must be case-insensitively unique. For union, len(Members) > 0,
-	memberKeys []string           //for preserving order
+	Members    *Members `json:"members,omitempty"` //keys must be case-insensitively unique. For union, len(Members) > 0,
 
 	//Resource
 	Identifiers map[string]*ShapeRef `json:"identifiers,omitempty"`

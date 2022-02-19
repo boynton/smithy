@@ -142,7 +142,9 @@ func (ast *AST) noteExternalTraitRefs(match string, traits *data.Object, refs ma
 }
 
 func (ast *AST) noteExternalRefs(match string, name string, shape *Shape, refs map[string]bool) {
-	if strings.HasPrefix(name, "smithy.api#") {
+	if name == "smithy.api#Document" {
+		//force an alias to this to get emitted.
+	} else if strings.HasPrefix(name, "smithy.api#") {
 		return
 	}
 	if _, ok := refs[name]; ok {
@@ -162,9 +164,12 @@ func (ast *AST) noteExternalRefs(match string, name string, shape *Shape, refs m
 				ast.noteExternalRefs(match, shape.Member.Target, ast.GetShape(shape.Member.Target), refs)
 				ast.noteExternalTraitRefs(match, shape.Member.Traits, refs)
 			case "structure", "union":
-				for _, member := range shape.Members {
-					ast.noteExternalRefs(match, member.Target, ast.GetShape(member.Target), refs)
-					ast.noteExternalTraitRefs(match, member.Traits, refs)
+				if shape.Members != nil {
+					for _, k := range shape.Members.Keys() {
+						member := shape.Members.Get(k)
+						ast.noteExternalRefs(match, member.Target, ast.GetShape(member.Target), refs)
+						ast.noteExternalTraitRefs(match, member.Traits, refs)
+					}
 				}
 			}
 		}
@@ -434,9 +439,9 @@ func (w *IdlWriter) EmitMapShape(name string, shape *Shape) {
 func (w *IdlWriter) EmitUnionShape(name string, shape *Shape) {
 	w.EmitTraits(shape.Traits, "")
 	w.Emit("union %s {\n", name)
-	count := len(shape.Members)
-	for _, fname := range shape.memberKeys {
-		mem := shape.Members[fname]
+	count := shape.Members.Length()
+	for _, fname := range shape.Members.Keys() {
+		mem := shape.Members.Get(fname)
 		w.EmitTraits(mem.Traits, IndentAmount)
 		w.Emit("%s%s: %s", IndentAmount, fname, w.stripNamespace(mem.Target))
 		count--
@@ -544,11 +549,11 @@ func (w *IdlWriter) EmitExamplesTrait(opname string, raw interface{}) {
 func (w *IdlWriter) EmitStructureShape(name string, shape *Shape) {
 	w.EmitTraits(shape.Traits, "")
 	w.Emit("structure %s {\n", name)
-	for i, k := range shape.memberKeys {
+	for i, k := range shape.Members.Keys() {
 		if i > 0 {
 			w.Emit("\n")
 		}
-		v := shape.Members[k]
+		v := shape.Members.Get(k)
 		w.EmitTraits(v.Traits, IndentAmount)
 		w.Emit("%s%s: %s,\n", IndentAmount, k, w.stripNamespace(v.Target))
 	}

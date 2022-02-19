@@ -81,21 +81,36 @@ func IsLowercaseLetter(ch rune) bool {
 }
 
 func FormatComment(indent, prefix, comment string, maxcol int, extraPad bool) string {
+	tab := ""
+	pad := ""
+	emptyPrefix := strings.Trim(prefix, " ")
+	if extraPad {
+		pad = tab + emptyPrefix + "\n"
+	}
 	left := len(indent)
 	if maxcol <= left && strings.Index(comment, "\n") < 0 {
+		if extraPad {
+			return indent + emptyPrefix + "\n" + indent + prefix + comment + "\n" + indent + emptyPrefix + "\n"
+		}
 		return indent + prefix + comment + "\n"
 	}
 	tabbytes := make([]byte, 0, left)
 	for i := 0; i < left; i++ {
 		tabbytes = append(tabbytes, ' ')
 	}
-	tab := string(tabbytes)
+	tab = string(tabbytes)
 	prefixlen := len(prefix)
 	if strings.Index(comment, "\n") >= 0 {
 		lines := strings.Split(comment, "\n")
 		result := ""
+		if extraPad {
+			result = result + pad
+		}
 		for _, line := range lines {
 			result = result + tab + prefix + line + "\n"
+		}
+		if extraPad {
+			result = result + pad
 		}
 		return result
 	}
@@ -122,12 +137,6 @@ func FormatComment(indent, prefix, comment string, maxcol int, extraPad bool) st
 		}
 	}
 	buf.WriteString("\n")
-	emptyPrefix := strings.Trim(prefix, " ")
-	//	pad := tab + emptyPrefix + "\n"
-	pad := ""
-	if extraPad {
-		pad = tab + emptyPrefix + "\n"
-	}
 	return pad + buf.String() + pad
 }
 

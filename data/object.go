@@ -102,6 +102,13 @@ func NewObject() *Object {
 		bindings: make(map[string]interface{}, 0),
 	}
 }
+func ObjectFromMap(m map[string]interface{}) *Object {
+	o := NewObject()
+	for k, v := range m {
+		o.Put(k, v)
+	}
+	return o
+}
 
 func (s *Object) find(key string) int {
 	for i, k := range s.keys {
@@ -113,17 +120,25 @@ func (s *Object) find(key string) int {
 }
 
 func (s *Object) Has(key string) bool {
-	if _, ok := s.bindings[key]; ok {
-		return true
+	if s != nil {
+		if _, ok := s.bindings[key]; ok {
+			return true
+		}
 	}
 	return false
 }
 
 func (s *Object) Get(key string) interface{} {
+	if s == nil {
+		return nil
+	}
 	return s.bindings[key]
 }
 
 func (s *Object) Put(key string, val interface{}) {
+	if s == nil {
+		*s = *NewObject()
+	}
 	if _, ok := s.bindings[key]; !ok {
 		s.keys = append(s.keys, key)
 	}
@@ -131,6 +146,9 @@ func (s *Object) Put(key string, val interface{}) {
 }
 
 func (s *Object) Keys() []string {
+	if s == nil {
+		return nil
+	}
 	return s.keys
 }
 
@@ -177,7 +195,23 @@ func (s *Object) GetMap(key string) map[string]interface{} {
 func (s *Object) GetDecimal(key string) *Decimal {
 	return AsDecimal(s.Get(key))
 }
-
+func (s *Object) GetObject(key string) *Object {
+	return AsObject(s.Get(key))
+}
+func AsObject(v interface{}) *Object {
+	if v != nil {
+		switch m := v.(type) {
+		case *Object:
+			return m
+		case map[string]interface{}:
+			return ObjectFromMap(m)
+		default:
+			fmt.Println("AsObject:", Pretty(v))
+			panic("not an object?")
+		}
+	}
+	return nil
+}
 func AsMap(v interface{}) map[string]interface{} {
 	if v != nil {
 		switch m := v.(type) {
