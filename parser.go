@@ -489,7 +489,7 @@ func (p *Parser) expectShapeId() (string, error) {
 		}
 		if ns == "" {
 			ns = ident
-		}			
+		}
 		ns = ns + "."
 		ident = ""
 		txt, err = p.ExpectIdentifier()
