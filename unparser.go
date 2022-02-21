@@ -99,17 +99,22 @@ func (ast *AST) IDL(ns string) string {
 	for _, nsk := range ast.Shapes.Keys() {
 		lst := strings.Split(nsk, "#")
 		k := lst[1]
-		if !emitted[k] {
-			w.EmitShape(k, ast.GetShape(nsk))
+		if lst[0] == ns {
+			if !emitted[k] {
+				w.EmitShape(k, ast.GetShape(nsk))
+			}
 		}
 	}
 	for _, nsk := range ast.Shapes.Keys() {
 		shape := ast.GetShape(nsk)
 		if shape.Type == "operation" {
-			if d := shape.Traits.Get("smithy.api#examples"); d != nil {
-				switch v := d.(type) {
-				case []map[string]interface{}:
-					w.EmitExamplesTrait(nsk, v)
+			lst := strings.Split(nsk, "#")
+			if lst[0] == ns {
+				if d := shape.Traits.Get("smithy.api#examples"); d != nil {
+					switch v := d.(type) {
+					case []map[string]interface{}:
+						w.EmitExamplesTrait(nsk, v)
+					}
 				}
 			}
 		}
@@ -121,8 +126,11 @@ func (ast *AST) ExternalRefs(ns string) []string {
 	match := ns + "#"
 	refs := make(map[string]bool, 0)
 	for _, k := range ast.Shapes.Keys() {
-		v := ast.GetShape(k)
-		ast.noteExternalRefs(match, k, v, refs)
+		lst := strings.Split(k, "#")
+		if lst[0] == ns {
+			v := ast.GetShape(k)
+			ast.noteExternalRefs(match, k, v, refs)
+		}
 	}
 	var res []string
 	for k, _ := range refs {
@@ -189,6 +197,12 @@ func (w *IdlWriter) Begin() {
 }
 
 func (w *IdlWriter) stripNamespace(id string) string {
+	n := strings.Index(id, "#")
+	if n < 0 {
+		return id
+	}
+	return id[n+1:]
+	/*
 	match := w.namespace + "#"
 	if strings.HasPrefix(id, match) {
 		return id[len(match):]
@@ -200,6 +214,7 @@ func (w *IdlWriter) stripNamespace(id string) string {
 		}
 	}
 	return id
+	*/
 }
 
 func (w *IdlWriter) Emit(format string, args ...interface{}) {
@@ -341,23 +356,25 @@ func (w *IdlWriter) EmitTagsTrait(v interface{}, indent string) {
 }
 
 func (w *IdlWriter) EmitDeprecatedTrait(v interface{}, indent string) {
-	/*
-		if dep != nil {
-			s := indent + "@deprecated"
-			if dep.Message != "" {
-				s = s + fmt.Sprintf("(message: %q", dep.Message)
-			}
-			if dep.Since != "" {
-				if s == "@deprecated" {
-					s = s + fmt.Sprintf("(since: %q)", dep.Since)
-				} else {
-					s = s + fmt.Sprintf(", since: %q)", dep.Since)
-				}
-			}
-			w.Emit(s+"\n")
+	dep := data.AsObject(v)
+	if dep != nil {
+		s := indent + "@deprecated"
+		hasMessage := false
+		if dep.Has("message") {
+			s = s + fmt.Sprintf("(message: %q", dep.GetString("message"))
+			hasMessage = true
 		}
-	*/
-	panic("fix me")
+		if dep.Has("since") {
+			if hasMessage {
+				s = s + fmt.Sprintf(", since: %q)", dep.GetString("since"))
+			} else {
+				s = s + fmt.Sprintf("(since: %q)", dep.GetString("since"))
+			}
+		} else {
+			s = s + ")"
+		}
+		w.Emit(s+"\n")
+	}
 }
 
 func (w *IdlWriter) EmitHttpTrait(rv interface{}, indent string) {
@@ -475,7 +492,7 @@ func (w *IdlWriter) EmitTraits(traits *data.Object, indent string) {
 			w.EmitBooleanTrait(data.AsBool(v), w.stripNamespace(k), indent)
 		case "smithy.api#httpLabel", "smithy.api#httpPayload":
 			w.EmitBooleanTrait(data.AsBool(v), w.stripNamespace(k), indent)
-		case "smithy.api#httpQuery", "smithy.api#httpHeader":
+		case "smithy.api#httpQuery", "smithy.api#httpHeader", "smithy.api#timestampFormat":
 			w.EmitStringTrait(data.AsString(v), w.stripNamespace(k), indent)
 		case "smithy.api#deprecated":
 			w.EmitDeprecatedTrait(v, indent)
@@ -616,29 +633,33 @@ func (w *IdlWriter) EmitResourceShape(name string, shape *Shape) {
 	if len(shape.Identifiers) > 0 {
 		w.Emit("    identifiers: {\n")
 		for k, v := range shape.Identifiers {
-			w.Emit("        %s: %s,\n", k, v.Target) //fixme
+			w.Emit("        %s: %s,\n", k, w.stripNamespace(v.Target))
 		}
 		w.Emit("    }\n")
 		if shape.Create != nil {
-			w.Emit("    create: %v\n", shape.Create)
+			w.Emit("    create: %v\n", w.stripNamespace(shape.Create.Target))
 		}
 		if shape.Put != nil {
-			w.Emit("    put: %v\n", shape.Put)
+			w.Emit("    put: %v\n", w.stripNamespace(shape.Put.Target))
 		}
 		if shape.Read != nil {
-			w.Emit("    read: %v\n", shape.Read)
+			w.Emit("    read: %v\n", w.stripNamespace(shape.Read.Target))
 		}
 		if shape.Update != nil {
-			w.Emit("    update: %v\n", shape.Update)
+			w.Emit("    update: %v\n", w.stripNamespace(shape.Update.Target))
 		}
 		if shape.Delete != nil {
-			w.Emit("    delete: %v\n", shape.Delete)
+			w.Emit("    delete: %v\n", w.stripNamespace(shape.Delete.Target))
 		}
 		if shape.List != nil {
-			w.Emit("    list: %v\n", shape.List)
+			w.Emit("    list: %v\n", w.stripNamespace(shape.List.Target))
 		}
 		if len(shape.Operations) > 0 {
-			w.Emit("    %s\n", w.listOfShapeRefs("operations", "%s", shape.Operations, true))
+			var tmp []*ShapeRef
+			for _, id := range shape.Operations {
+				tmp = append(tmp, &ShapeRef{Target: w.stripNamespace(id.Target)})
+			}
+			w.Emit("    %s\n", w.listOfShapeRefs("operations", "%s", tmp, true))
 		}
 		if len(shape.CollectionOperations) > 0 {
 			w.Emit("    %s\n", w.listOfShapeRefs("collectionOperations", "%s", shape.CollectionOperations, true))

@@ -309,6 +309,8 @@ func AsDecimal(v interface{}) *Decimal {
 		return &n
 	case *Decimal:
 		return n
+	case float64:
+		return NewDecimal(n)
 	default:
 		return nil
 	}

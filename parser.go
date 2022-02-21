@@ -1322,7 +1322,7 @@ func (p *Parser) parseLiteralSymbol(tok *Token) (interface{}, error) {
 	case "null":
 		return nil, nil
 	default:
-		return nil, fmt.Errorf("Not a valid symbol: %s", tok.Text)
+		return nil, p.Error(fmt.Sprintf("Not a valid symbol: %s", tok.Text))
 	}
 }
 func (p *Parser) parseLiteralString(tok *Token) (*string, error) {
