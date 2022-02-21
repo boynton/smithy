@@ -52,12 +52,6 @@ func (gen *SadlGenerator) ToSadl(ns string, model *Model) string {
 
 	w.Begin()
 
-	//output service attributes, then actions, then types
-
-	//SADL currently handles a single service. So find the first one and use that...
-	//should I shake the tree to only include types/operations/resources that are part of that service?
-	//I think by default, I want to see everything.
-	//bool includeAll := true
 	serviceName, _ := gen.serviceName(model, ns)
 	if serviceName != "" {
 		w.Emit("name %s\n", serviceName)
@@ -67,23 +61,21 @@ func (gen *SadlGenerator) ToSadl(ns string, model *Model) string {
 		w.Emit("namespace %s\n", ns)
 	}
 
-	/*
-		imports := ast.ExternalRefs(ns)
-		if len(imports) > 0 {
-			w.Emit("\n")
-			for _, im := range imports {
-				if im == "smithy.api#Document" {
-					w.Emit("type Document Struct\n")
-				}
-				//w.Emit("use %s\n", im)
+	imports := ast.ExternalRefs(ns)
+	if len(imports) > 0 {
+		w.Emit("\n")
+		for _, im := range imports {
+			if im == "smithy.api#Document" {
+				w.Emit("type Document Struct\n")
 			}
+			//w.Emit("use %s\n", im) //to do: when SADL supports this feature
 		}
-	*/
+	}
+
 	w.Emit("\n")
 
 	for _, nsk := range ast.Shapes.Keys() {
 		lst := strings.Split(nsk, "#")
-		//		if lst[0] == ns {
 		shape := ast.GetShape(nsk)
 		k := lst[1]
 		if shape.Type == "operation" {
@@ -106,7 +98,6 @@ func (gen *SadlGenerator) ToSadl(ns string, model *Model) string {
 				}
 			}
 		}
-		//		}
 	}
 	for _, nsk := range ast.Shapes.Keys() {
 		lst := strings.Split(nsk, "#")
@@ -147,36 +138,37 @@ func (w *SadlWriter) EmitShape(name string, shape *Shape) {
 		return
 	}
 	w.Emit("\n")
-	var enumItems []interface{}
+	//	var enumItems []interface{}
 
-	var opts []string
-	if shape.Traits != nil {
-		for _, k := range shape.Traits.Keys() {
-			switch k {
-			case "smithy.api#tags":
-				if w.config.GetBool("annotate") {
-					opts = append(opts, fmt.Sprintf("x_tags=%q", strings.Join(shape.Traits.GetStringArray(k), ",")))
-				}
-			case "smithy.api#enum":
-				enumItems = shape.Traits.GetArray("smithy.api#enum")
-			case "smithy.api#idempotent", "smithy.api#readonly":
-				if w.config.GetBool("annotate") {
-					opts = append(opts, "x_"+w.stripNamespace(k))
-				}
-			default:
-				if strings.HasPrefix(k, "smithy.api#") {
-					//ignore, i.e. things like http, httpError, etc, they are handled elsewhere
-				} else {
+	/*
+		var opts []string
+		if shape.Traits != nil {
+			for _, k := range shape.Traits.Keys() {
+				switch k {
+					case "smithy.api#tags":
+					if w.config.GetBool("annotate") {
+						opts = append(opts, fmt.Sprintf("x_tags=%q", strings.Join(shape.Traits.GetStringArray(k), ",")))
+					}
+				case "smithy.api#enum":
+					enumItems = shape.Traits.GetArray("smithy.api#enum")
+				case "smithy.api#idempotent", "smithy.api#readonly":
 					if w.config.GetBool("annotate") {
 						opts = append(opts, "x_"+w.stripNamespace(k))
+					}
+				default:
+					if strings.HasPrefix(k, "smithy.api#") {
+						//ignore, i.e. things like http, httpError, etc, they are handled elsewhere
+					} else {
+						if w.config.GetBool("annotate") {
+							opts = append(opts, "x_"+w.stripNamespace(k))
+						}
 					}
 				}
 			}
 		}
-	}
-	if len(opts) != 0 {
-		fmt.Println("opts for", name, "("+strings.Join(opts, ", ")+")")
-	}
+	*/
+	opts := w.traitsAsAnnotations(shape.Traits)
+	enumItems := shape.Traits.GetArray("smithy.api#enum")
 	if enumItems != nil {
 		w.EmitEnum(name, shape, enumItems)
 		return
@@ -210,7 +202,7 @@ func (w *SadlWriter) EmitShape(name string, shape *Shape) {
 	case "map":
 		w.EmitMapShape(name, shape)
 	case "structure":
-		w.EmitStructureShape(name, shape)
+		w.EmitStructureShape(name, shape, opts)
 	case "union":
 		w.EmitUnionShape(name, shape)
 	case "resource":
@@ -253,8 +245,18 @@ func (w *SadlWriter) EmitBooleanShape(name string, shape *Shape) {
 
 func (w *SadlWriter) EmitNumericShape(shapeName, name string, shape *Shape) {
 	w.EmitShapeComment(shape)
-	opts := "" //fixme
-	w.Emit("type %s %s (%s)\n", name, shapeName, opts)
+	var opts []string
+	r := shape.Traits.GetObject("smithy.api#range")
+	if r != nil {
+		if r.Has("min") {
+			opts = append(opts, fmt.Sprintf("min=%v", r.GetInt("min")))
+		}
+		if r.Has("max") {
+			opts = append(opts, fmt.Sprintf("max=%v", r.GetInt("max")))
+		}
+	}
+	sopts := w.annotationString(opts)
+	w.Emit("type %s %s%s\n", name, shapeName, sopts)
 }
 
 func (w *SadlWriter) EmitStringShape(name string, shape *Shape) {
@@ -264,10 +266,7 @@ func (w *SadlWriter) EmitStringShape(name string, shape *Shape) {
 	if pat != "" {
 		opts = append(opts, fmt.Sprintf("pattern=%q", pat))
 	}
-	sopts := ""
-	if len(opts) > 0 {
-		sopts = " (" + strings.Join(opts, ", ") + ")"
-	}
+	sopts := w.annotationString(opts)
 	w.Emit("type %s String%s\n", name, sopts)
 }
 
@@ -294,16 +293,15 @@ func (w *SadlWriter) EmitMapShape(name string, shape *Shape) {
 	w.Emit("type %s Map<%s,%s>\n", name, w.stripNamespace(shape.Key.Target), w.stripNamespace(shape.Value.Target))
 }
 
-func (w *SadlWriter) EmitStructureShape(name string, shape *Shape) {
+func (w *SadlWriter) EmitStructureShape(name string, shape *Shape, opts []string) {
+	sopts := w.annotationString(opts)
 	w.EmitShapeComment(shape)
-	opt := ""
-	w.Emit("type " + name + " Struct" + opt + " {\n")
+	w.Emit("type %s Struct%s{\n", name, sopts)
 	for _, k := range shape.Members.Keys() {
 		v := shape.Members.Get(k)
 		tref := w.stripNamespace(w.shapeRefToTypeRef(v.Target))
-		w.Emit("%s%s %s", IndentAmount, k, tref)
-		w.EmitTraits(v.Traits, IndentAmount)
-		w.Emit("\n")
+		sopts := w.traitsAsAnnotationString(v.Traits)
+		w.Emit("%s%s %s%s\n", IndentAmount, k, tref, sopts)
 	}
 	w.Emit("}\n")
 }
@@ -316,9 +314,8 @@ func (w *SadlWriter) EmitUnionShape(name string, shape *Shape) {
 		v := shape.Members.Get(k)
 		//		w.EmitTraits(v.Traits, IndentAmount)
 		tref := w.stripNamespace(w.shapeRefToTypeRef(v.Target))
-		w.Emit("%s%s %s", IndentAmount, k, tref)
-		w.EmitTraits(v.Traits, IndentAmount)
-		w.Emit("\n")
+		sopts := w.traitsAsAnnotationString(v.Traits)
+		w.Emit("%s%s %s%s\n", IndentAmount, k, tref, sopts)
 	}
 	w.Emit("}\n")
 }
@@ -360,7 +357,7 @@ func (w *SadlWriter) EmitOperationShape(name string, shape *Shape, opts []string
 				}
 				s := v.Traits.GetString("smithy.api#httpQuery")
 				if s != "" {
-					p := s + "={" + s + "}"
+					p := s + "={" + k + "}"
 					if queryParams == "" {
 						queryParams = "?" + p
 					} else {
@@ -411,28 +408,27 @@ func (w *SadlWriter) EmitOperationShape(name string, shape *Shape, opts []string
 	var mopts []string
 	if outType != "" {
 		outShape = w.model.ast.GetShape(outType)
-		if outShape.Members.Length() > 0 {
-			w.Emit("\texpect %d {\n", expected)
-			for _, k := range outShape.Members.Keys() {
-				v := outShape.Members.Get(k)
-				if v.Traits.Has("smithy.api#httpPayload") {
-					//
-				} else {
-					s := v.Traits.GetString("smithy.api#httpHeader")
-					if s != "" {
-						mopts = append(mopts, fmt.Sprintf("header=%q", s))
-					}
+		w.Emit("\texpect %d {\n", expected)
+		for _, k := range outShape.Members.Keys() {
+			v := outShape.Members.Get(k)
+			if v.Traits.Has("smithy.api#httpPayload") {
+				//
+			} else {
+				s := v.Traits.GetString("smithy.api#httpHeader")
+				if s != "" {
+					mopts = append(mopts, fmt.Sprintf("header=%q", s))
 				}
-				sopts := ""
-				if len(mopts) > 0 {
-					sopts = " (" + strings.Join(mopts, ", ") + ")"
-				}
-				w.Emit("\t\t%s %s%s\n", k, w.stripNamespace(v.Target), sopts)
 			}
-			w.Emit("\t}\n")
-		} else {
-			w.Emit("\texpect %d\n", expected) //no content
+			sopts := ""
+			if len(mopts) > 0 {
+				sopts = " (" + strings.Join(mopts, ", ") + ")"
+			}
+			tref := w.stripNamespace(w.shapeRefToTypeRef(v.Target))
+			w.Emit("\t\t%s %s%s\n", k, tref, sopts)
 		}
+		w.Emit("\t}\n")
+	} else {
+		w.Emit("\texpect %d\n", expected) //no content
 	}
 	//except: we have to iterate through the "errors" of the operation, and check each one for httpError
 	//Note that there is in that case not much opportunity to do headers.
@@ -538,14 +534,71 @@ func (w *SadlWriter) shapeRefToTypeRef(shapeRef string) string {
 	return typeRef
 }
 
-func (w *SadlWriter) EmitTraits(traits *data.Object, indentAmount string) {
+func withAnnotation(annos map[string]string, key string, value string) map[string]string {
+	if value != "" {
+		if annos == nil {
+			annos = make(map[string]string, 0)
+		}
+		annos[key] = value
+	}
+	return annos
+}
+
+func (w *SadlWriter) annotationString(opts []string) string {
+	if len(opts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (%s)", strings.Join(opts, ", "))
+}
+
+func (w *SadlWriter) traitsAsAnnotationString(traits *data.Object) string {
+	return w.annotationString(w.traitsAsAnnotations(traits))
+}
+
+func (w *SadlWriter) traitsAsAnnotations(traits *data.Object) []string {
 	var opts []string
 	if traits != nil {
-		if traits.Has("smithy.api#required") {
-			opts = append(opts, "required")
-		}
-		if opts != nil {
-			w.Emit(" (%s)", strings.Join(opts, ", "))
+		for _, k := range traits.Keys() {
+			v := traits.Get(k)
+			switch k {
+			case "smithy.api#required":
+				opts = append(opts, "required")
+			case "smithy.api#deprecated":
+				if w.config.GetBool("annotate") {
+					//				dv := data.AsMap(v)
+					dv := data.AsObject(v)
+					msg := dv.GetString("message")
+					opts = append(opts, fmt.Sprintf("x_deprecated=%q", msg))
+				}
+				/*
+					case "smithy.api#paginated":
+							dv := sadl.AsMap(v)
+							inputToken := sadl.AsString(dv["inputToken"])
+							outputToken := sadl.AsString(dv["outputToken"])
+							pageSize := sadl.AsString(dv["pageSize"])
+							items := sadl.AsString(dv["items"])
+							s := fmt.Sprintf("inputToken=%s,outputToken=%s,pageSize=%s,items=%s", inputToken, outputToken, p\
+								ageSize, items)
+							annos = WithAnnotation(annos, "x_paginated", s)
+				*/
+			case "smithy.api#timestampFormat":
+				if w.config.GetBool("annotate") {
+					opts = append(opts, fmt.Sprintf("x_timestampFormat=%q", v))
+				}
+			case "smithy.api#tags":
+				if w.config.GetBool("annotate") {
+					opts = append(opts, fmt.Sprintf("x_tags=%q", strings.Join(data.AsStringArray(v), ",")))
+				}
+			case "smithy.api#error":
+				if w.config.GetBool("annotate") {
+					opts = append(opts, "x_error")
+				}
+			case "smithy.api#httpError":
+				if w.config.GetBool("annotate") {
+					opts = append(opts, fmt.Sprintf("x_httpError=\"%v\"", v))
+				}
+			}
 		}
 	}
+	return opts
 }

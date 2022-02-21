@@ -1213,6 +1213,13 @@ func (p *Parser) parseTrait(traits *data.Object) (*data.Object, error) {
 			return traits, err
 		}
 		return withTrait(traits, "smithy.api#range", args), nil
+	case "deprecated":
+		args, _, err := p.parseTraitArgs()
+		if err != nil {
+			return traits, err
+		}
+		return withTrait(traits, "smithy.api#deprecated", args), nil
+
 	case "paginated":
 		args, _, err := p.parseTraitArgs()
 		if err != nil {
