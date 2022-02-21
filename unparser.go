@@ -203,17 +203,17 @@ func (w *IdlWriter) stripNamespace(id string) string {
 	}
 	return id[n+1:]
 	/*
-	match := w.namespace + "#"
-	if strings.HasPrefix(id, match) {
-		return id[len(match):]
-	}
-	if strings.HasPrefix(id, "smithy.api") {
-		n := strings.Index(id, "#")
-		if n >= 0 {
-			return id[n+1:]
+		match := w.namespace + "#"
+		if strings.HasPrefix(id, match) {
+			return id[len(match):]
 		}
-	}
-	return id
+		if strings.HasPrefix(id, "smithy.api") {
+			n := strings.Index(id, "#")
+			if n >= 0 {
+				return id[n+1:]
+			}
+		}
+		return id
 	*/
 }
 
@@ -373,7 +373,7 @@ func (w *IdlWriter) EmitDeprecatedTrait(v interface{}, indent string) {
 		} else {
 			s = s + ")"
 		}
-		w.Emit(s+"\n")
+		w.Emit(s + "\n")
 	}
 }
 
