@@ -124,10 +124,13 @@ func (ast *AST) IDL(ns string) string {
 
 func (ast *AST) ExternalRefs(ns string) []string {
 	match := ns + "#"
+	if ns == "" {
+		match = ""
+	}
 	refs := make(map[string]bool, 0)
 	for _, k := range ast.Shapes.Keys() {
 		lst := strings.Split(k, "#")
-		if lst[0] == ns {
+		if ns == "" || lst[0] == ns {
 			v := ast.GetShape(k)
 			ast.noteExternalRefs(match, k, v, refs)
 		}
@@ -142,7 +145,7 @@ func (ast *AST) ExternalRefs(ns string) []string {
 func (ast *AST) noteExternalTraitRefs(match string, traits *data.Object, refs map[string]bool) {
 	if traits != nil {
 		for _, tk := range traits.Keys() {
-			if !strings.HasPrefix(tk, "smithy.api#") && !strings.HasPrefix(tk, match) {
+			if !strings.HasPrefix(tk, "smithy.api#") && (match != "" && !strings.HasPrefix(tk, match)) {
 				refs[tk] = true
 			}
 		}
@@ -158,7 +161,7 @@ func (ast *AST) noteExternalRefs(match string, name string, shape *Shape, refs m
 	if _, ok := refs[name]; ok {
 		return
 	}
-	if !strings.HasPrefix(name, match) {
+	if match == "" || !strings.HasPrefix(name, match) {
 		refs[name] = true
 		if shape != nil {
 			ast.noteExternalTraitRefs(match, shape.Traits, refs)

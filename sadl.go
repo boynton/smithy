@@ -20,14 +20,20 @@ func (gen *SadlGenerator) Generate(model *Model, config *data.Object) error {
 	}
 	ns := config.GetString("namespace")
 	if ns == "" {
-		lstNs := model.Namespaces()
-		if len(lstNs) == 1 {
-			ns = lstNs[0]
-		} else {
-			return fmt.Errorf("Multiple namespaces in smithy model, SADL requires that you choose one")
-		}
+		/*
+			lstNs := model.Namespaces()
+			if len(lstNs) == 1 {
+				ns = lstNs[0]
+			} else {
+				return fmt.Errorf("Multiple namespaces in smithy model, SADL requires that you choose one")
+			}
+		*/
 	}
-	fname := gen.FileName(ns, ".sadl")
+	fbase := ns
+	if fbase == "" {
+		fbase = "model"
+	}
+	fname := gen.FileName(fbase, ".sadl")
 	s := gen.ToSadl(ns, model)
 	return gen.Emit(s, fname, "")
 }
@@ -51,27 +57,23 @@ func (gen *SadlGenerator) ToSadl(ns string, model *Model) string {
 	emitted := make(map[string]bool, 0)
 
 	w.Begin()
-
-	serviceName, _ := gen.serviceName(model, ns)
-	if serviceName != "" {
-		w.Emit("name %s\n", serviceName)
-		emitted[serviceName] = true
-	}
+	w.Emit("/* Generated from smithy source */\n")
 	if ns != "" {
-		w.Emit("namespace %s\n", ns)
+		w.Emit("\nnamespace %s\n", ns)
 	}
+	w.Emit("\ntype Document Struct //SADL has no built-in Document type\n")
 
-	imports := ast.ExternalRefs(ns)
-	if len(imports) > 0 {
-		w.Emit("\n")
-		for _, im := range imports {
-			if im == "smithy.api#Document" {
-				w.Emit("type Document Struct\n")
+	/*
+		imports := ast.ExternalRefs(ns)
+		if len(imports) > 0 {
+			for _, im := range imports {
+				if im == "smithy.api#Document" {
+					w.Emit("type Document Struct //SADL has no built-in Document type\n")
+				}
+				//w.Emit("use %s\n", im) //to do: when SADL supports this feature
 			}
-			//w.Emit("use %s\n", im) //to do: when SADL supports this feature
 		}
-	}
-
+	*/
 	w.Emit("\n")
 
 	for _, nsk := range ast.Shapes.Keys() {
@@ -342,7 +344,7 @@ func (w *SadlWriter) EmitOperationShape(name string, shape *Shape, opts []string
 	sopts := "(" + strings.Join(opts, ", ") + ")"
 	queryParams := ""
 	var inShape *Shape
-	inputIsPayload := method == "PUT" || method == "POST"
+	inputIsPayload := method == "PUT" || method == "POST" || method == "PATCH"
 	if inType != "" {
 		inShape = w.model.ast.GetShape(inType)
 		if inShape == nil {
@@ -412,7 +414,6 @@ func (w *SadlWriter) EmitOperationShape(name string, shape *Shape, opts []string
 		for _, k := range outShape.Members.Keys() {
 			v := outShape.Members.Get(k)
 			if v.Traits.Has("smithy.api#httpPayload") {
-				//
 			} else {
 				s := v.Traits.GetString("smithy.api#httpHeader")
 				if s != "" {
