@@ -23,7 +23,7 @@ func (model *Model) GetAst() *AST {
 	return model.ast
 }
 
-func AssembleModel(paths []string) (*Model, error) {
+func AssembleModel(paths []string, tags []string) (*Model, error) {
 	flatPathList, err := expandPaths(paths)
 	if err != nil {
 		return nil, err
@@ -51,11 +51,118 @@ func AssembleModel(paths []string) (*Model, error) {
 			return nil, err
 		}
 	}
+	if len(tags) > 0 {
+		assembly.Filter(tags)
+	}
 	err = assembly.Validate()
 	if err != nil {
 		return nil, err
 	}
 	return &Model{ast: assembly}, nil
+}
+
+func containsString(ary []string, val string) bool {
+	for _, s := range ary {
+		if s == val {
+			return true
+		}
+	}
+	return false
+}
+func (ast *AST) Filter(tags []string) {
+	var root []string
+	for _, k := range ast.Shapes.Keys() {
+		shape := ast.Shapes.Get(k)
+		shapeTags := shape.Traits.GetStringArray("smithy.api#tags")
+		if shapeTags != nil {
+			for _, t := range shapeTags {
+				if containsString(tags, t) {
+					root = append(root, k)
+				}
+			}
+		}
+	}
+	included := make(map[string]bool, 0)
+	for _, k := range root {
+		if _, ok := included[k]; !ok {
+			ast.noteDependencies(included, k)
+		}
+	}
+	filtered := newShapes()
+	for name, _ := range included {
+		filtered.Put(name, ast.GetShape(name))
+	}
+	ast.Shapes = filtered
+}
+
+func (ast *AST) noteDependenciesFromRef(included map[string]bool, ref *ShapeRef) {
+	if ref != nil {
+		ast.noteDependencies(included, ref.Target)
+	}
+}
+
+func (ast *AST) noteDependencies(included map[string]bool, name string) {
+	//note traits
+	if name == "" || strings.HasPrefix(name, "smithy.api#") {
+		return
+	}
+	if _, ok := included[name]; ok {
+		return
+	}
+	included[name] = true
+	shape := ast.GetShape(name)
+	if shape == nil {
+		return
+	}
+	if shape.Traits != nil {
+		for _, tk := range shape.Traits.Keys() {
+			ast.noteDependencies(included, tk)
+		}
+	}
+	switch shape.Type {
+	case "operation":
+		ast.noteDependenciesFromRef(included, shape.Input)
+		ast.noteDependenciesFromRef(included, shape.Output)
+		for _, e := range shape.Errors {
+			ast.noteDependenciesFromRef(included, e)
+		}
+	case "resource":
+		if shape.Identifiers != nil {
+			for _, v := range shape.Identifiers {
+				ast.noteDependenciesFromRef(included, v)
+			}
+		}
+		for _, o := range shape.Operations {
+			ast.noteDependenciesFromRef(included, o)
+		}
+		for _, r := range shape.Resources {
+			ast.noteDependenciesFromRef(included, r)
+		}
+		ast.noteDependenciesFromRef(included, shape.Create)
+		ast.noteDependenciesFromRef(included, shape.Put)
+		ast.noteDependenciesFromRef(included, shape.Read)
+		ast.noteDependenciesFromRef(included, shape.Update)
+		ast.noteDependenciesFromRef(included, shape.Delete)
+		ast.noteDependenciesFromRef(included, shape.List)
+		for _, o := range shape.CollectionOperations {
+			ast.noteDependenciesFromRef(included, o)
+		}
+	case "structure", "union":
+		for _, n := range shape.Members.Keys() {
+			m := shape.Members.Get(n)
+			ast.noteDependencies(included, m.Target)
+		}
+	case "list", "set":
+		ast.noteDependencies(included, shape.Member.Target)
+	case "map":
+		ast.noteDependencies(included, shape.Key.Target)
+		ast.noteDependencies(included, shape.Value.Target)
+	case "string", "integer", "long", "short", "byte", "float", "double", "boolean", "bigInteger", "bigDecimal", "blob", "timestamp":
+		//smithy primitives
+	default:
+		fmt.Println("HANDLE THIS:", shape.Type)
+		//		panic("whoa")
+	}
 }
 
 func (ast *AST) Validate() error {
@@ -162,6 +269,14 @@ func shapeIdNamespace(id string) string {
 	//name.space#entity$member
 	lst := strings.Split(id, "#")
 	return lst[0]
+}
+
+func (model *Model) ShapeNames() []string {
+	var lst []string
+	for _, k := range model.ast.Shapes.Keys() {
+		lst = append(lst, k)
+	}
+	return lst
 }
 
 func (model *Model) Namespaces() []string {

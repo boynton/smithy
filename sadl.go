@@ -140,35 +140,6 @@ func (w *SadlWriter) EmitShape(name string, shape *Shape) {
 		return
 	}
 	w.Emit("\n")
-	//	var enumItems []interface{}
-
-	/*
-		var opts []string
-		if shape.Traits != nil {
-			for _, k := range shape.Traits.Keys() {
-				switch k {
-					case "smithy.api#tags":
-					if w.config.GetBool("annotate") {
-						opts = append(opts, fmt.Sprintf("x_tags=%q", strings.Join(shape.Traits.GetStringArray(k), ",")))
-					}
-				case "smithy.api#enum":
-					enumItems = shape.Traits.GetArray("smithy.api#enum")
-				case "smithy.api#idempotent", "smithy.api#readonly":
-					if w.config.GetBool("annotate") {
-						opts = append(opts, "x_"+w.stripNamespace(k))
-					}
-				default:
-					if strings.HasPrefix(k, "smithy.api#") {
-						//ignore, i.e. things like http, httpError, etc, they are handled elsewhere
-					} else {
-						if w.config.GetBool("annotate") {
-							opts = append(opts, "x_"+w.stripNamespace(k))
-						}
-					}
-				}
-			}
-		}
-	*/
 	opts := w.traitsAsAnnotations(shape.Traits)
 	enumItems := shape.Traits.GetArray("smithy.api#enum")
 	if enumItems != nil {
@@ -191,7 +162,7 @@ func (w *SadlWriter) EmitShape(name string, shape *Shape) {
 	case "double":
 		w.EmitNumericShape("Float64", name, shape)
 	case "bigInteger":
-	case "bigdecimal":
+	case "bigDecimal":
 		w.EmitNumericShape("Decimal", name, shape)
 	case "blob":
 		w.EmitBlobShape(name, shape)
