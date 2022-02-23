@@ -1147,7 +1147,7 @@ func (p *Parser) parseTrait(traits *data.Object) (*data.Object, error) {
 		return traits, err
 	}
 	switch tname {
-	case "idempotent", "required", "httpLabel", "httpPayload", "readonly", "box": //booleans
+	case "idempotent", "required", "httpLabel", "httpPayload", "readonly", "box", "sensitive":
 		return withTrait(traits, "smithy.api#"+tname, data.NewObject()), nil
 	case "documentation":
 		err := p.expect(OPEN_PAREN)

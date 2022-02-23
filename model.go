@@ -69,6 +69,18 @@ func containsString(ary []string, val string) bool {
 	}
 	return false
 }
+
+func (ast *AST) RequiresDocumentType() bool {
+	included := make(map[string]bool, 0)
+	for _, k := range ast.Shapes.Keys() {
+		ast.noteDependencies(included, k)
+	}
+	if _, ok := included["smithy.api#Document"]; ok {
+		return true
+	}
+	return false
+}
+
 func (ast *AST) Filter(tags []string) {
 	var root []string
 	for _, k := range ast.Shapes.Keys() {
@@ -90,7 +102,9 @@ func (ast *AST) Filter(tags []string) {
 	}
 	filtered := newShapes()
 	for name, _ := range included {
-		filtered.Put(name, ast.GetShape(name))
+		if !strings.HasPrefix(name, "smithy.api#") {
+			filtered.Put(name, ast.GetShape(name))
+		}
 	}
 	ast.Shapes = filtered
 }
@@ -103,6 +117,10 @@ func (ast *AST) noteDependenciesFromRef(included map[string]bool, ref *ShapeRef)
 
 func (ast *AST) noteDependencies(included map[string]bool, name string) {
 	//note traits
+	if name == "smithy.api#Document" {
+		included[name] = true
+		return
+	}
 	if name == "" || strings.HasPrefix(name, "smithy.api#") {
 		return
 	}
@@ -159,9 +177,6 @@ func (ast *AST) noteDependencies(included map[string]bool, name string) {
 		ast.noteDependencies(included, shape.Value.Target)
 	case "string", "integer", "long", "short", "byte", "float", "double", "boolean", "bigInteger", "bigDecimal", "blob", "timestamp":
 		//smithy primitives
-	default:
-		fmt.Println("HANDLE THIS:", shape.Type)
-		//		panic("whoa")
 	}
 }
 

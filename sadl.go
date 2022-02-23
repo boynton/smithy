@@ -47,6 +47,10 @@ type SadlWriter struct {
 	config    *data.Object
 }
 
+func (gen *SadlGenerator) RequiresDocument() bool {
+	return true
+}
+
 func (gen *SadlGenerator) ToSadl(ns string, model *Model) string {
 	ast := model.ast
 	w := &SadlWriter{
@@ -61,7 +65,9 @@ func (gen *SadlGenerator) ToSadl(ns string, model *Model) string {
 	if ns != "" {
 		w.Emit("\nnamespace %s\n", ns)
 	}
-	w.Emit("\ntype Document Struct //SADL has no built-in Document type\n")
+	if ast.RequiresDocumentType() {
+		w.Emit("\ntype Document Struct //SADL has no built-in Document type\n")
+	}
 
 	/*
 		imports := ast.ExternalRefs(ns)
@@ -80,6 +86,7 @@ func (gen *SadlGenerator) ToSadl(ns string, model *Model) string {
 		lst := strings.Split(nsk, "#")
 		shape := ast.GetShape(nsk)
 		k := lst[1]
+		fmt.Println("nsk:", nsk)
 		if shape.Type == "operation" {
 			w.EmitShape(k, shape)
 			emitted[k] = true
