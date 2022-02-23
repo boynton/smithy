@@ -86,7 +86,6 @@ func (gen *SadlGenerator) ToSadl(ns string, model *Model) string {
 		lst := strings.Split(nsk, "#")
 		shape := ast.GetShape(nsk)
 		k := lst[1]
-		fmt.Println("nsk:", nsk)
 		if shape.Type == "operation" {
 			w.EmitShape(k, shape)
 			emitted[k] = true
