@@ -100,7 +100,7 @@ func (ast *AST) Filter(tags []string) {
 			ast.noteDependencies(included, k)
 		}
 	}
-	filtered := newShapes()
+	filtered := NewShapes()
 	for name, _ := range included {
 		if !strings.HasPrefix(name, "smithy.api#") {
 			filtered.Put(name, ast.GetShape(name))

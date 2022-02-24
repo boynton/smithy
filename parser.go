@@ -730,7 +730,7 @@ func (p *Parser) parseStructure(traits *data.Object) error {
 		Type:   "structure",
 		Traits: traits,
 	}
-	mems := newMembers()
+	mems := NewMembers()
 	comment := ""
 	var mtraits *data.Object
 	for {
@@ -797,7 +797,7 @@ func (p *Parser) parseUnion(traits *data.Object) error {
 		Type:   "union",
 		Traits: traits,
 	}
-	mems := newMembers()
+	mems := NewMembers()
 	var mtraits *data.Object
 	for {
 		tok := p.GetToken()

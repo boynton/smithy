@@ -24,7 +24,7 @@ type Shapes struct {
 	bindings map[string]*Shape
 }
 
-func newShapes() *Shapes {
+func NewShapes() *Shapes {
 	return &Shapes{
 		bindings: make(map[string]*Shape, 0),
 	}
@@ -35,7 +35,7 @@ func (s *Shapes) UnmarshalJSON(raw []byte) error {
 	if err != nil {
 		return err
 	}
-	shapes := newShapes()
+	shapes := NewShapes()
 	shapes.keys = keys
 	err = json.Unmarshal(raw, &shapes.bindings)
 	if err != nil {
@@ -86,7 +86,7 @@ func (s *Shapes) Length() int {
 
 func (ast *AST) PutShape(id string, shape *Shape) {
 	if ast.Shapes == nil {
-		ast.Shapes = newShapes()
+		ast.Shapes = NewShapes()
 	}
 	ast.Shapes.Put(id, shape)
 }
@@ -104,7 +104,7 @@ type Members struct {
 	bindings map[string]*Member
 }
 
-func newMembers() *Members {
+func NewMembers() *Members {
 	return &Members{
 		bindings: make(map[string]*Member, 0),
 	}
@@ -115,7 +115,7 @@ func (m *Members) UnmarshalJSON(raw []byte) error {
 	if err != nil {
 		return err
 	}
-	members := newMembers()
+	members := NewMembers()
 	members.keys = keys
 	err = json.Unmarshal(raw, &members.bindings)
 	if err != nil {
