@@ -37,7 +37,7 @@ func AssembleModel(paths []string, tags []string) (*Model, error) {
 		ext := filepath.Ext(path)
 		switch ext {
 		case ".json":
-			ast, err = loadAST(path)
+			ast, err = LoadAST(path)
 		case ".smithy":
 			ast, err = parse(path) //FIXME: the parser's "use" map is lost here. Would be useful for unparse!
 		default:
@@ -223,7 +223,7 @@ func (ast *AST) mergeConflict(k string, v1 interface{}, v2 interface{}) error {
 	return fmt.Errorf("Conflict when merging metadata in models: %s\n", k)
 }
 
-func loadAST(path string) (*AST, error) {
+func LoadAST(path string) (*AST, error) {
 	var ast *AST
 	data, err := ioutil.ReadFile(path)
 	if err != nil {
