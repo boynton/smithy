@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"strings"
 
-	"github.com/boynton/smithy/data"
+	"github.com/boynton/data"
 )
 
 const SmithyVersion = "1.0"
@@ -213,3 +215,215 @@ type Member struct {
 	Target string       `json:"target"`
 	Traits *data.Object `json:"traits,omitempty"`
 }
+
+func shapeIdNamespace(id string) string {
+	//name.space#entity$member
+	lst := strings.Split(id, "#")
+	return lst[0]
+}
+
+func (ast *AST) Validate() error {
+	//todo
+	return nil
+}
+
+func (ast *AST) Namespaces() []string {
+	m := make(map[string]int, 0)
+	if ast.Shapes != nil {
+		for _, id := range ast.Shapes.Keys() {
+			ns := shapeIdNamespace(id)
+			if n, ok := m[ns]; ok {
+				m[ns] = n + 1
+			} else {
+				m[ns] = 1
+			}
+		}
+	}
+	nss := make([]string, 0, len(m))
+	for k, _ := range m {
+		nss = append(nss, k)
+	}
+	return nss
+}
+
+func (ast *AST) RequiresDocumentType() bool {
+	included := make(map[string]bool, 0)
+	for _, k := range ast.Shapes.Keys() {
+		ast.noteDependencies(included, k)
+	}
+	if _, ok := included["smithy.api#Document"]; ok {
+		return true
+	}
+	return false
+}
+
+func (ast *AST) noteDependenciesFromRef(included map[string]bool, ref *ShapeRef) {
+	if ref != nil {
+		ast.noteDependencies(included, ref.Target)
+	}
+}
+
+func (ast *AST) noteDependencies(included map[string]bool, name string) {
+	//note traits
+	if name == "smithy.api#Document" {
+		included[name] = true
+		return
+	}
+	if name == "" || strings.HasPrefix(name, "smithy.api#") {
+		return
+	}
+	if _, ok := included[name]; ok {
+		return
+	}
+	included[name] = true
+	shape := ast.GetShape(name)
+	if shape == nil {
+		return
+	}
+	if shape.Traits != nil {
+		for _, tk := range shape.Traits.Keys() {
+			ast.noteDependencies(included, tk)
+		}
+	}
+	switch shape.Type {
+	case "operation":
+		ast.noteDependenciesFromRef(included, shape.Input)
+		ast.noteDependenciesFromRef(included, shape.Output)
+		for _, e := range shape.Errors {
+			ast.noteDependenciesFromRef(included, e)
+		}
+	case "resource":
+		if shape.Identifiers != nil {
+			for _, v := range shape.Identifiers {
+				ast.noteDependenciesFromRef(included, v)
+			}
+		}
+		for _, o := range shape.Operations {
+			ast.noteDependenciesFromRef(included, o)
+		}
+		for _, r := range shape.Resources {
+			ast.noteDependenciesFromRef(included, r)
+		}
+		ast.noteDependenciesFromRef(included, shape.Create)
+		ast.noteDependenciesFromRef(included, shape.Put)
+		ast.noteDependenciesFromRef(included, shape.Read)
+		ast.noteDependenciesFromRef(included, shape.Update)
+		ast.noteDependenciesFromRef(included, shape.Delete)
+		ast.noteDependenciesFromRef(included, shape.List)
+		for _, o := range shape.CollectionOperations {
+			ast.noteDependenciesFromRef(included, o)
+		}
+	case "structure", "union":
+		for _, n := range shape.Members.Keys() {
+			m := shape.Members.Get(n)
+			ast.noteDependencies(included, m.Target)
+		}
+	case "list", "set":
+		ast.noteDependencies(included, shape.Member.Target)
+	case "map":
+		ast.noteDependencies(included, shape.Key.Target)
+		ast.noteDependencies(included, shape.Value.Target)
+	case "string", "integer", "long", "short", "byte", "float", "double", "boolean", "bigInteger", "bigDecimal", "blob", "timestamp":
+		//smithy primitives
+	}
+}
+
+func (ast *AST) ShapeNames() []string {
+	var lst []string
+	for _, k := range ast.Shapes.Keys() {
+		lst = append(lst, k)
+	}
+	return lst
+}
+
+func LoadAST(path string) (*AST, error) {
+	var ast *AST
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("Cannot read smithy AST file: %v\n", err)
+	}
+	err = json.Unmarshal(data, &ast)
+	if err != nil {
+		return nil, fmt.Errorf("Cannot parse Smithy AST file: %v\n", err)
+	}
+	if ast.Smithy == "" {
+		return nil, fmt.Errorf("Cannot parse Smithy AST file: %v\n", err)
+	}
+	return ast, nil
+}
+
+func (ast *AST) Merge(src *AST) error {
+	if ast.Smithy != src.Smithy {
+		return fmt.Errorf("Smithy version mismatch. Expected %s, got %s\n", ast.Smithy, src.Smithy)
+	}
+	if src.Metadata != nil {
+		if ast.Metadata == nil {
+			ast.Metadata = src.Metadata
+		} else {
+			for _, k := range src.Metadata.Keys() {
+				v := src.Metadata.Get(k)
+				prev := ast.Metadata.Get(k)
+				if prev != nil {
+					err := ast.mergeConflict(k, prev, v)
+					if err != nil {
+						return err
+					}
+				}
+				ast.Metadata.Put(k, v)
+			}
+		}
+	}
+	if src.Shapes != nil {
+		for _, k := range src.Shapes.Keys() {
+			if tmp := ast.GetShape(k); tmp != nil {
+				return fmt.Errorf("Duplicate shape in assembly: %s\n", k)
+			}
+			ast.PutShape(k, src.GetShape(k))
+		}
+	}
+	return nil
+}
+
+func (ast *AST) mergeConflict(k string, v1 interface{}, v2 interface{}) error {
+	//todo: if values are identical, accept one of them
+	//todo: concat list values
+	return fmt.Errorf("Conflict when merging metadata in models: %s\n", k)
+}
+
+func (ast *AST) Filter(tags []string) {
+	var root []string
+	for _, k := range ast.Shapes.Keys() {
+		shape := ast.Shapes.Get(k)
+		shapeTags := shape.Traits.GetStringArray("smithy.api#tags")
+		if shapeTags != nil {
+			for _, t := range shapeTags {
+				if containsString(tags, t) {
+					root = append(root, k)
+				}
+			}
+		}
+	}
+	included := make(map[string]bool, 0)
+	for _, k := range root {
+		if _, ok := included[k]; !ok {
+			ast.noteDependencies(included, k)
+		}
+	}
+	filtered := NewShapes()
+	for name, _ := range included {
+		if !strings.HasPrefix(name, "smithy.api#") {
+			filtered.Put(name, ast.GetShape(name))
+		}
+	}
+	ast.Shapes = filtered
+}
+
+func containsString(ary []string, val string) bool {
+	for _, s := range ary {
+		if s == val {
+			return true
+		}
+	}
+	return false
+}
+

@@ -4,10 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/boynton/data"
 	"github.com/boynton/smithy"
-	"github.com/boynton/smithy/data"
 )
 
 func main() {
@@ -35,13 +36,13 @@ func main() {
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
-	model, err := smithy.AssembleModel(files, tags)
+	ast, err := AssembleModel(files, tags)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(2)
 	}
 	if *pList {
-		for _, n := range model.ShapeNames() {
+		for _, n := range ast.ShapeNames() {
 			fmt.Println(n)
 		}
 		os.Exit(0)
@@ -58,7 +59,7 @@ func main() {
 	}
 	generator, err := Generator(gen)
 	if err == nil {
-		err = generator.Generate(model, conf)
+		err = generator.Generate(ast, conf)
 	}
 	if err != nil {
 		fmt.Printf("*** %v\n", err)
@@ -97,4 +98,75 @@ func Generator(genName string) (smithy.Generator, error) {
 	default:
 		return nil, fmt.Errorf("Unknown generator: %q", genName)
 	}
+}
+
+func AssembleModel(paths []string, tags []string) (*smithy.AST, error) {
+	flatPathList, err := expandPaths(paths)
+	if err != nil {
+		return nil, err
+	}
+	assembly := &smithy.AST{
+		Smithy: "1.0",
+	}
+	for _, path := range flatPathList {
+		var ast *smithy.AST
+		var err error
+		ext := filepath.Ext(path)
+		switch ext {
+		case ".json":
+			ast, err = smithy.LoadAST(path)
+		case ".smithy":
+			ast, err = smithy.Parse(path)
+		default:
+			return nil, fmt.Errorf("parse for file type %q not implemented", ext)
+		}
+		if err != nil {
+			return nil, err
+		}
+		err = assembly.Merge(ast)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(tags) > 0 {
+		assembly.Filter(tags)
+	}
+	err = assembly.Validate()
+	if err != nil {
+		return nil, err
+	}
+	return assembly, nil
+}
+
+var ImportFileExtensions = map[string][]string{
+	".smithy": []string{"smithy"},
+	".json":    []string{"smithy"},
+}
+
+func expandPaths(paths []string) ([]string, error) {
+	var result []string
+	for _, path := range paths {
+		ext := filepath.Ext(path)
+		if _, ok := ImportFileExtensions[ext]; ok {
+			result = append(result, path)
+		} else {
+			fi, err := os.Stat(path)
+			if err != nil {
+				return nil, err
+			}
+			if fi.IsDir() {
+				err = filepath.Walk(path, func(wpath string, info os.FileInfo, errIncoming error) error {
+					if errIncoming != nil {
+						return errIncoming
+					}
+					ext := filepath.Ext(wpath)
+					if _, ok := ImportFileExtensions[ext]; ok {
+						result = append(result, wpath)
+					}
+					return nil
+				})
+			}
+		}
+	}
+	return result, nil
 }

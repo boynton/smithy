@@ -6,35 +6,25 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/boynton/smithy/data"
+	"github.com/boynton/data"
 )
 
 type SadlGenerator struct {
 	BaseGenerator
 }
 
-func (gen *SadlGenerator) Generate(model *Model, config *data.Object) error {
+func (gen *SadlGenerator) Generate(ast *AST, config *data.Object) error {
 	err := gen.Configure(config)
 	if err != nil {
 		return err
 	}
 	ns := config.GetString("namespace")
-	if ns == "" {
-		/*
-			lstNs := model.Namespaces()
-			if len(lstNs) == 1 {
-				ns = lstNs[0]
-			} else {
-				return fmt.Errorf("Multiple namespaces in smithy model, SADL requires that you choose one")
-			}
-		*/
-	}
 	fbase := ns
 	if fbase == "" {
 		fbase = "model"
 	}
 	fname := gen.FileName(fbase, ".sadl")
-	s := gen.ToSadl(ns, model)
+	s := gen.ToSadl(ns, ast)
 	return gen.Emit(s, fname, "")
 }
 
@@ -43,19 +33,14 @@ type SadlWriter struct {
 	writer    *bufio.Writer
 	namespace string
 	name      string
-	model     *Model
+	ast       *AST
 	config    *data.Object
 }
 
-func (gen *SadlGenerator) RequiresDocument() bool {
-	return true
-}
-
-func (gen *SadlGenerator) ToSadl(ns string, model *Model) string {
-	ast := model.ast
+func (gen *SadlGenerator) ToSadl(ns string, ast *AST) string {
 	w := &SadlWriter{
 		namespace: ns,
-		model:     model,
+		ast:    ast,
 		config:    gen.Config,
 	}
 	emitted := make(map[string]bool, 0)
@@ -68,18 +53,6 @@ func (gen *SadlGenerator) ToSadl(ns string, model *Model) string {
 	if ast.RequiresDocumentType() {
 		w.Emit("\ntype Document Struct //SADL has no built-in Document type\n")
 	}
-
-	/*
-		imports := ast.ExternalRefs(ns)
-		if len(imports) > 0 {
-			for _, im := range imports {
-				if im == "smithy.api#Document" {
-					w.Emit("type Document Struct //SADL has no built-in Document type\n")
-				}
-				//w.Emit("use %s\n", im) //to do: when SADL supports this feature
-			}
-		}
-	*/
 	w.Emit("\n")
 
 	for _, nsk := range ast.Shapes.Keys() {
@@ -114,20 +87,20 @@ func (gen *SadlGenerator) ToSadl(ns string, model *Model) string {
 			w.EmitShape(k, ast.GetShape(nsk))
 		}
 	}
-	/*
-		for _, nsk := range ast.Shapes.Keys() {
-			shape := ast.GetShape(nsk)
-			if shape.Type == "operation" {
-				if d := shape.Traits.Get("smithy.api#examples"); d != nil {
-					switch v := d.(type) {
-					case []map[string]interface{}:
-						//w.EmitExamplesTrait(nsk, v)
-						fmt.Println("FIX ME: example", v)
-					}
+	for _, nsk := range ast.Shapes.Keys() {
+		shape := ast.GetShape(nsk)
+		if shape.Type == "operation" {
+			if d := shape.Traits.Get("smithy.api#examples"); d != nil {
+	            panic("FIX ME")
+				/*				switch v := d.(type) {
+				case []map[string]interface{}:
+					//w.EmitExamplesTrait(nsk, v)
+					fmt.Println("FIX ME: example", v)
 				}
+				*/
 			}
 		}
-	*/
+	}
 	return w.End()
 }
 
@@ -317,13 +290,13 @@ func (w *SadlWriter) EmitOperationShape(name string, shape *Shape, opts []string
 		outType = w.shapeRefToTypeRef(shape.Output.Target)
 	}
 
-	opts = append(opts, fmt.Sprintf("action=%s", name))
+	opts = append(opts, fmt.Sprintf("operation=%s", name))
 	sopts := "(" + strings.Join(opts, ", ") + ")"
 	queryParams := ""
 	var inShape *Shape
 	inputIsPayload := method == "PUT" || method == "POST" || method == "PATCH"
 	if inType != "" {
-		inShape = w.model.ast.GetShape(inType)
+		inShape = w.ast.GetShape(inType)
 		if inShape == nil {
 			panic("cannot find shape def for: " + inType)
 		}
@@ -386,7 +359,7 @@ func (w *SadlWriter) EmitOperationShape(name string, shape *Shape, opts []string
 	var outShape *Shape
 	var mopts []string
 	if outType != "" {
-		outShape = w.model.ast.GetShape(outType)
+		outShape = w.ast.GetShape(outType)
 		w.Emit("\texpect %d {\n", expected)
 		for _, k := range outShape.Members.Keys() {
 			v := outShape.Members.Get(k)
@@ -412,7 +385,7 @@ func (w *SadlWriter) EmitOperationShape(name string, shape *Shape, opts []string
 	//Note that there is in that case not much opportunity to do headers.
 	if len(shape.Errors) > 0 {
 		for _, errType := range shape.Errors {
-			errShape := w.model.ast.GetShape(errType.Target)
+			errShape := w.ast.GetShape(errType.Target)
 			if errShape == nil {
 				fmt.Println(data.Pretty(errType))
 				panic("whoops, no error?")
@@ -431,7 +404,8 @@ func (w *SadlWriter) End() string {
 	return w.buf.String()
 }
 
-func (gen *SadlGenerator) serviceName(model *Model, ns string) (string, *Shape) {
+/*
+   func (gen *SadlGenerator) serviceName(model *Model, ns string) (string, *Shape) {
 	for _, nsk := range model.ast.Shapes.Keys() {
 		shape := model.ast.GetShape(nsk)
 		shapeAbsName := strings.Split(nsk, "#")
@@ -445,6 +419,7 @@ func (gen *SadlGenerator) serviceName(model *Model, ns string) (string, *Shape) 
 	}
 	return "", nil
 }
+*/
 
 func (w *SadlWriter) stripNamespace(id string) string {
 	//fixme: just totally ignore it for now

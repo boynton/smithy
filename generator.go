@@ -8,15 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/boynton/smithy/data"
+	"github.com/boynton/data"
 )
 
 type Generator interface {
-	Generate(model *Model, config *data.Object) error
+	Generate(ast *AST, config *data.Object) error
 }
 
 type BaseGenerator struct {
-	//	Model          *Model
 	Config         *data.Object
 	OutDir         string
 	ForceOverwrite bool
@@ -83,12 +82,12 @@ type AstGenerator struct {
 	BaseGenerator
 }
 
-func (gen *AstGenerator) Generate(model *Model, config *data.Object) error {
+func (gen *AstGenerator) Generate(ast *AST, config *data.Object) error {
 	err := gen.Configure(config)
 	if err != nil {
 		return err
 	}
-	text := data.Pretty(model.ast)
+	text := data.Pretty(ast)
 	return gen.Emit(text, "model.json", "")
 }
 
@@ -96,7 +95,7 @@ type IdlGenerator struct {
 	BaseGenerator
 }
 
-func (gen *IdlGenerator) Generate(model *Model, config *data.Object) error {
+func (gen *IdlGenerator) Generate(ast *AST, config *data.Object) error {
 	err := gen.Configure(config)
 	if err != nil {
 		return err
@@ -104,10 +103,10 @@ func (gen *IdlGenerator) Generate(model *Model, config *data.Object) error {
 	//generate one file per namespace. For outdir == "", concatenate with separator indicating intended filename
 	//fixme: preserve metadata. Smithy IDL is problematic for that, since metadata is not namespaced, and gets merged
 	//on assembly. Should each namespaced IDL get all metadata? none?
-	for _, ns := range model.Namespaces() {
+	for _, ns := range ast.Namespaces() {
 		fname := gen.FileName(ns, ".smithy")
 		sep := fmt.Sprintf("\n// ===== File(%q)\n\n", fname)
-		s := model.ast.IDL(ns)
+		s := ast.IDL(ns)
 		err := gen.Emit(s, fname, sep)
 		if err != nil {
 			return err

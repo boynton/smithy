@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/boynton/smithy/data"
+	"github.com/boynton/data"
 )
 
 const IndentAmount = "    "

@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/boynton/smithy/data"
+	"github.com/boynton/data"
 )
 
-func parse(path string) (*AST, error) {
+func Parse(path string) (*AST, error) {
 	b, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, err
