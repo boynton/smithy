@@ -1,3 +1,18 @@
+/*
+   Copyright 2021 Lee R. Boynton
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
 package smithy
 
 import (
@@ -40,7 +55,7 @@ type SadlWriter struct {
 func (gen *SadlGenerator) ToSadl(ns string, ast *AST) string {
 	w := &SadlWriter{
 		namespace: ns,
-		ast:    ast,
+		ast:       ast,
 		config:    gen.Config,
 	}
 	emitted := make(map[string]bool, 0)
@@ -91,12 +106,12 @@ func (gen *SadlGenerator) ToSadl(ns string, ast *AST) string {
 		shape := ast.GetShape(nsk)
 		if shape.Type == "operation" {
 			if d := shape.Traits.Get("smithy.api#examples"); d != nil {
-	            panic("FIX ME")
+				panic("FIX ME")
 				/*				switch v := d.(type) {
-				case []map[string]interface{}:
-					//w.EmitExamplesTrait(nsk, v)
-					fmt.Println("FIX ME: example", v)
-				}
+								case []map[string]interface{}:
+									//w.EmitExamplesTrait(nsk, v)
+									fmt.Println("FIX ME: example", v)
+								}
 				*/
 			}
 		}
@@ -178,10 +193,15 @@ func (w *SadlWriter) EmitEnum(name string, shape *Shape, lst []interface{}) {
 	w.Emit("type %s Enum {\n", name)
 	for _, r := range lst {
 		if m, ok := r.(map[string]interface{}); ok {
+			//just use the name, ignore the value.
 			if v, ok := m["name"]; ok {
 				if s, ok := v.(string); ok {
-					//just use the name, ignore the value.
 					w.Emit("    %s\n", s)
+				} else if s, ok := v.(*string); ok {
+					w.Emit("    %s\n", *s)
+				} else {
+					fmt.Println("r:", r)
+					panic("Enum name is not a string?!")
 				}
 			}
 		}
@@ -236,7 +256,12 @@ func (w *SadlWriter) EmitBlobShape(name string, shape *Shape) {
 func (w *SadlWriter) EmitCollectionShape(shapeName, name string, shape *Shape) {
 	w.EmitShapeComment(shape)
 	//	w.EmitTraits(shape.Traits, "")
-	w.Emit("type %s Array<%s> // %s\n", name, w.stripNamespace(shape.Member.Target), shapeName)
+	//w.Emit("type %s Array<%s> // %s\n", name, w.stripNamespace(shape.Member.Target), shapeName)
+	clarifier := ""
+	if shapeName != "list" {
+		clarifier = " // " + shapeName
+	}
+	w.Emit("type %s List<%s>%s\n", name, w.stripNamespace(shape.Member.Target), clarifier)
 }
 
 func (w *SadlWriter) EmitMapShape(name string, shape *Shape) {

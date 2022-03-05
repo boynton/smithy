@@ -1,6 +1,6 @@
 all:: bin/smithy
 
-bin/smithy::
+bin/smithy: *.go cmd/smithy/*.go
 	mkdir -p bin
 	go build -ldflags "-X github.com/boynton/smithy.ToolVersion=`git describe --tag`" -o bin/smithy github.com/boynton/smithy/cmd/smithy
 
