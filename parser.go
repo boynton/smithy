@@ -18,11 +18,14 @@ package smithy
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/boynton/data"
 )
+
+var AnnotateSources bool = false
 
 func Parse(path string) (*AST, error) {
 	b, err := ioutil.ReadFile(path)
@@ -35,6 +38,7 @@ func Parse(path string) (*AST, error) {
 		path:    path,
 		source:  src,
 	}
+	p.wd, _ = os.Getwd()
 	err = p.Parse()
 	if err != nil {
 		return nil, err
@@ -54,6 +58,7 @@ type Parser struct {
 	name           string
 	currentComment string
 	use            map[string]string //maps short name to fully qualified name (typically another namespace)
+	wd             string
 }
 
 func (p *Parser) Parse() error {
@@ -569,6 +574,10 @@ func (p *Parser) addShapeDefinition(name string, shape *Shape) error {
 	id := p.ensureNamespaced(name)
 	if tmp := p.ast.GetShape(id); tmp != nil {
 		return p.Error(fmt.Sprintf("Duplicate shape: %q", id))
+	}
+	if AnnotateSources {
+		rpath := p.relativePath(p.path)
+		shape.Traits, _ = withCommentTrait(shape.Traits, "source: "+rpath)
 	}
 	p.ast.PutShape(id, shape)
 	return nil
@@ -1413,4 +1422,27 @@ func StripNamespace(target string) string {
 		return target
 	}
 	return target[n+1:]
+}
+
+func (p *Parser) relativePath(path string) string {
+	if !strings.HasPrefix(path, "/") {
+		return path
+	}
+	if !strings.HasPrefix(path, p.wd) {
+		p1 := strings.Split(path, "/")
+		p2 := strings.Split(p.wd, "/")
+		i := 0
+		for p1[i] == p2[i] {
+			p1 = p1[1:]
+			p2 = p2[1:]
+		}
+		s := strings.Join(p1, "/")
+		for _, _ = range p2 {
+			s = "../" + s
+		}
+		return s
+	} else {
+		i := len(p.wd)
+		return path[i:]
+	}
 }

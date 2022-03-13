@@ -33,6 +33,7 @@ func main() {
 	pForce := flag.Bool("f", false, "Force overwrite if output file exists")
 	pGen := flag.String("g", "idl", "The generator for output")
 	pOutdir := flag.String("o", "", "The directory to generate output into (defaults to stdout)")
+	pSources := flag.Bool("s", false, "Add the source file name as a comment to each parsed shape")
 	var params Params
 	flag.Var(&params, "a", "Additional named arguments for a generator")
 	var tags Tags
@@ -43,6 +44,7 @@ func main() {
 		fmt.Printf("Smithy tool %s [%s]\n", smithy.ToolVersion, "https://github.com/boynton/smithy")
 		os.Exit(0)
 	}
+	smithy.AnnotateSources = *pSources
 	gen := *pGen
 	outdir := *pOutdir
 	files := flag.Args()

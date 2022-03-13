@@ -73,6 +73,11 @@ func (gen *SadlGenerator) ToSadl(ns string, ast *AST) string {
 	for _, nsk := range ast.Shapes.Keys() {
 		lst := strings.Split(nsk, "#")
 		shape := ast.GetShape(nsk)
+		if shape == nil {
+			fmt.Println("whoops:", nsk)
+			//panic("Undefined shape")
+			continue
+		}
 		k := lst[1]
 		if shape.Type == "operation" {
 			w.EmitShape(k, shape)
