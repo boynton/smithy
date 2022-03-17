@@ -324,7 +324,7 @@ func (w *IdlWriter) EmitRangeTrait(v interface{}, indent string) {
 }
 
 func (w *IdlWriter) EmitEnumTrait(v interface{}, indent string) {
-	en := v.([]map[string]interface{})
+	en := v.([]interface{})
 	if len(en) > 0 {
 		s := data.Pretty(en)
 		slen := len(s)

@@ -260,13 +260,23 @@ func (w *SadlWriter) EmitBlobShape(name string, shape *Shape) {
 
 func (w *SadlWriter) EmitCollectionShape(shapeName, name string, shape *Shape) {
 	w.EmitShapeComment(shape)
+	r := shape.Traits.GetObject("smithy.api#length")
+	var opts []string
+	if r != nil {
+		if r.Has("min") {
+			opts = append(opts, fmt.Sprintf("minsize=%v", r.GetInt("min")))
+		}
+		if r.Has("max") {
+			opts = append(opts, fmt.Sprintf("maxsize=%v", r.GetInt("max")))
+		}
+	}
+	sopts := w.annotationString(opts)
 	//	w.EmitTraits(shape.Traits, "")
-	//w.Emit("type %s Array<%s> // %s\n", name, w.stripNamespace(shape.Member.Target), shapeName)
 	clarifier := ""
 	if shapeName != "list" {
 		clarifier = " // " + shapeName
 	}
-	w.Emit("type %s List<%s>%s\n", name, w.stripNamespace(shape.Member.Target), clarifier)
+	w.Emit("type %s List<%s>%s%s\n", name, w.stripNamespace(shape.Member.Target), sopts, clarifier)
 }
 
 func (w *SadlWriter) EmitMapShape(name string, shape *Shape) {
@@ -278,7 +288,7 @@ func (w *SadlWriter) EmitMapShape(name string, shape *Shape) {
 func (w *SadlWriter) EmitStructureShape(name string, shape *Shape, opts []string) {
 	sopts := w.annotationString(opts)
 	w.EmitShapeComment(shape)
-	w.Emit("type %s Struct%s{\n", name, sopts)
+	w.Emit("type %s Struct%s {\n", name, sopts)
 	for _, k := range shape.Members.Keys() {
 		v := shape.Members.Get(k)
 		tref := w.stripNamespace(w.shapeRefToTypeRef(v.Target))
