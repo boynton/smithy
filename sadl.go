@@ -110,8 +110,10 @@ func (gen *SadlGenerator) ToSadl(ns string, ast *AST) string {
 	for _, nsk := range ast.Shapes.Keys() {
 		shape := ast.GetShape(nsk)
 		if shape.Type == "operation" {
-			if d := shape.Traits.Get("smithy.api#examples"); d != nil {
-				panic("FIX ME")
+			if d := shape.Traits.GetArray("smithy.api#examples"); d != nil {
+				for _, ex := range d {
+					w.EmitExample(shape, data.AsObject(ex))
+				}
 				/*				switch v := d.(type) {
 								case []map[string]interface{}:
 									//w.EmitExamplesTrait(nsk, v)
@@ -330,7 +332,7 @@ func (w *SadlWriter) EmitOperationShape(name string, shape *Shape, opts []string
 		outType = w.shapeRefToTypeRef(shape.Output.Target)
 	}
 
-	opts = append(opts, fmt.Sprintf("operation=%s", name))
+	opts = append(opts, fmt.Sprintf("operation=%s", Uncapitalize(name)))
 	sopts := "(" + strings.Join(opts, ", ") + ")"
 	queryParams := ""
 	var inShape *Shape
@@ -437,6 +439,25 @@ func (w *SadlWriter) EmitOperationShape(name string, shape *Shape, opts []string
 		}
 	}
 	w.Emit("}\n")
+}
+
+func (w *SadlWriter) EmitExample(shape *Shape, obj *data.Object) {
+	opName := obj.GetString("title")
+	if obj.Has("input") {
+		reqType := w.stripNamespace(shape.Input.Target)
+		w.Emit("\nexample %s (name=%s) ", reqType, opName)
+		w.Emit(data.Pretty(obj.GetObject("input")))
+	}
+	if obj.Has("error") {
+		er := obj.GetObject("error")
+		respType := w.stripNamespace(er.GetString("shapeId"))
+		w.Emit("\nexample %s (name=%s) ", respType, opName)
+		w.Emit(data.Pretty(er.GetObject("error")))
+	} else {
+		respType := w.stripNamespace(shape.Output.Target)
+		w.Emit("\nexample %s (name=%s) ", respType, opName)
+		w.Emit(data.Pretty(obj.GetObject("output")))
+	}
 }
 
 func (w *SadlWriter) End() string {
