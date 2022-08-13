@@ -53,11 +53,13 @@ func (ast *AST) NamespaceAndServiceVersion() (string, string, string) {
 //
 func (ast *AST) IDL(ns string) string {
 	w := &IdlWriter{
+		ast:       ast,
 		namespace: ns,
+		version:   ast.AssemblyVersion(),
 	}
 
 	w.Begin()
-	w.Emit("$version: %q\n", ast.Smithy) //only if a version-specific feature is needed. Could be "1" or "1.0"
+	w.Emit("$version: \"%d\"\n", w.version)
 	emitted := make(map[string]bool, 0)
 
 	if ast.Metadata.Length() > 0 {
@@ -96,18 +98,8 @@ func (ast *AST) IDL(ns string) string {
 			shape := ast.GetShape(nsk)
 			k := lst[1]
 			if shape.Type == "operation" {
-				w.EmitShape(k, shape)
-				emitted[k] = true
-				ki := k + "Input"
-				if vi := ast.GetShape(ns + "#" + ki); vi != nil {
-					w.EmitShape(ki, vi)
-					emitted[ki] = true
-				}
-				ko := k + "Output"
-				if vo := ast.GetShape(ns + "#" + ko); vo != nil {
-					w.EmitShape(ko, vo)
-					emitted[ko] = true
-				}
+				w.Emit("\n")
+				w.EmitOperationShape(k, shape, emitted)
 			}
 		}
 	}
@@ -207,6 +199,8 @@ type IdlWriter struct {
 	writer    *bufio.Writer
 	namespace string
 	name      string
+	version   int
+	ast       *AST
 }
 
 func (w *IdlWriter) Begin() {
@@ -267,7 +261,8 @@ func (w *IdlWriter) EmitShape(name string, shape *Shape) {
 	case "resource":
 		w.EmitResourceShape(name, shape)
 	case "operation":
-		w.EmitOperationShape(name, shape)
+		// already emitted
+		// w.EmitOperationShape(name, shape, emitted)
 	default:
 		panic("fix: shape " + name + " of type " + data.Pretty(shape))
 	}
@@ -582,6 +577,10 @@ func (w *IdlWriter) EmitExamplesTrait(opname string, raw interface{}) {
 }
 
 func (w *IdlWriter) EmitStructureShape(name string, shape *Shape) {
+	comma := ""
+	if w.version < 2 {
+		comma = ","
+	}
 	w.EmitTraits(shape.Traits, "")
 	w.Emit("structure %s {\n", name)
 	for i, k := range shape.Members.Keys() {
@@ -590,7 +589,7 @@ func (w *IdlWriter) EmitStructureShape(name string, shape *Shape) {
 		}
 		v := shape.Members.Get(k)
 		w.EmitTraits(v.Traits, IndentAmount)
-		w.Emit("%s%s: %s,\n", IndentAmount, k, w.stripNamespace(v.Target))
+		w.Emit("%s%s: %s%s\n", IndentAmount, k, w.stripNamespace(v.Target), comma)
 	}
 	w.Emit("}\n")
 }
@@ -633,9 +632,13 @@ func listOfStrings(label string, format string, lst []string) string {
 }
 
 func (w *IdlWriter) EmitServiceShape(name string, shape *Shape) {
+	comma := ""
+	if w.version < 2 {
+		comma = ","
+	}
 	w.EmitTraits(shape.Traits, "")
 	w.Emit("service %s {\n", name)
-	w.Emit("    version: %q,\n", shape.Version)
+	w.Emit("    version: %q%s\n", shape.Version, comma)
 	if len(shape.Operations) > 0 {
 		w.Emit("    %s\n", w.listOfShapeRefs("operations", "%s", shape.Operations, false))
 	}
@@ -686,19 +689,74 @@ func (w *IdlWriter) EmitResourceShape(name string, shape *Shape) {
 	w.Emit("}\n")
 }
 
-func (w *IdlWriter) EmitOperationShape(name string, shape *Shape) {
-	w.EmitTraits(shape.Traits, "")
-	w.Emit("operation %s {\n", name)
+func (w *IdlWriter) EmitOperationShape(name string, shape *Shape, emitted map[string]bool) {
+	var inputShape, outputShape *Shape
+	var inputName, outputName string
 	if shape.Input != nil {
-		w.Emit("    input: %s,\n", w.stripNamespace(shape.Input.Target))
+		inputName = w.stripNamespace(shape.Input.Target)
+		inputShape = w.ast.GetShape(shape.Input.Target)
 	}
 	if shape.Output != nil {
-		w.Emit("    output: %s,\n", w.stripNamespace(shape.Output.Target))
+		outputName = w.stripNamespace(shape.Output.Target)
+		outputShape = w.ast.GetShape(shape.Output.Target)
 	}
-	if len(shape.Errors) > 0 {
-		w.Emit("    %s,\n", w.listOfShapeRefs("errors", "%s", shape.Errors, false))
+	w.EmitTraits(shape.Traits, "")
+	w.Emit("operation %s {\n", name)
+	if w.version == 2 {
+		if inputShape != nil { //probably should require the @input trait before inlining.
+			w.Emit("%sinput := {\n", IndentAmount)
+			i2 := IndentAmount + IndentAmount
+			for i, k := range inputShape.Members.Keys() {
+				if i > 0 {
+					w.Emit("\n")
+				}
+				v := inputShape.Members.Get(k)
+				w.EmitTraits(v.Traits, i2)
+				w.Emit("%s%s: %s\n", i2, k, w.stripNamespace(v.Target))
+			}
+			w.Emit("%s}\n", IndentAmount)
+		}
+		if outputShape != nil { //probably should require the @output trait before inlining.
+			w.Emit("%soutput := {\n", IndentAmount)
+			i2 := IndentAmount + IndentAmount
+			for i, k := range outputShape.Members.Keys() {
+				if i > 0 {
+					w.Emit("\n")
+				}
+				v := outputShape.Members.Get(k)
+				w.EmitTraits(v.Traits, i2)
+				w.Emit("%s%s: %s\n", i2, k, w.stripNamespace(v.Target))
+			}
+			w.Emit("%s}\n", IndentAmount)
+		}
+		if len(shape.Errors) > 0 {
+			w.Emit("    %s\n", w.listOfShapeRefs("errors", "%s", shape.Errors, false))
+		}
+	} else {
+		if shape.Input != nil {
+			w.Emit("    input: %s,\n", inputName)
+		}
+		if shape.Output != nil {
+			w.Emit("    output: %s,\n", outputName)
+		}
+		if len(shape.Errors) > 0 {
+			w.Emit("    %s,\n", w.listOfShapeRefs("errors", "%s", shape.Errors, false))
+		}
 	}
 	w.Emit("}\n")
+	emitted[name] = true
+	if inputShape != nil {
+		if w.version == 1 {
+			w.EmitShape(inputName, inputShape)
+		}
+		emitted[inputName] = true
+	}
+	if outputShape != nil {
+		if w.version == 1 {
+			w.EmitShape(outputName, outputShape)
+		}
+		emitted[outputName] = true
+	}
 }
 
 func (w *IdlWriter) End() string {

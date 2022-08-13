@@ -59,6 +59,7 @@ type Parser struct {
 	currentComment string
 	use            map[string]string //maps short name to fully qualified name (typically another namespace)
 	wd             string
+	version        int //1 or 2
 }
 
 func (p *Parser) Parse() error {
@@ -88,6 +89,8 @@ func (p *Parser) Parse() error {
 				err = p.parseMetadata()
 			case "service":
 				err = p.parseService(comment)
+			case "blob", "document":
+				err = p.Error(fmt.Sprintf("Shape NYI: %s", tok.Text))
 			case "byte", "short", "integer", "long", "float", "double", "bigInteger", "bigDecimal", "string", "timestamp", "boolean":
 				traits, comment = withCommentTrait(traits, comment)
 				err = p.parseSimpleTypeDef(tok.Text, traits)
@@ -100,7 +103,7 @@ func (p *Parser) Parse() error {
 				traits, comment = withCommentTrait(traits, comment)
 				err = p.parseUnion(traits)
 				traits = nil
-			case "list", "set":
+			case "list", "set": //v2: set not longer supported
 				traits, comment = withCommentTrait(traits, comment)
 				err = p.parseCollection(tok.Text, traits)
 				traits = nil
@@ -168,7 +171,15 @@ func (p *Parser) Parse() error {
 			}
 			switch variable {
 			case "version":
-				if s, ok := v.(*string); ok && strings.HasPrefix(*s, "1") {
+				if s, ok := v.(*string); ok {
+					if strings.HasPrefix(*s, "1") {
+						p.version = 1
+					} else if strings.HasPrefix(*s, "2") {
+						p.ast.Smithy = "2"
+						p.version = 2
+					} else {
+						return fmt.Errorf("Unsupported version: %s\n", *s)
+					}
 				} else {
 					return fmt.Errorf("Bad control statement (only version 1 or 1.0 is supported): $%s: %v\n", variable, v)
 				}
@@ -738,17 +749,14 @@ func (p *Parser) parseMap(sname string, traits *data.Object) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseStructure(traits *data.Object) error {
-	name, err := p.ExpectIdentifier()
-	if err != nil {
-		return err
-	}
+func (p *Parser) parseStructureBody(traits *data.Object) (*Shape, error) {
+	var err error
 	tok := p.GetToken()
 	if tok == nil {
-		return p.EndOfFileError()
+		return nil, p.EndOfFileError()
 	}
 	if tok.Type != OPEN_BRACE {
-		return p.SyntaxError()
+		return nil, p.SyntaxError()
 	}
 	shape := &Shape{
 		Type:   "structure",
@@ -760,7 +768,7 @@ func (p *Parser) parseStructure(traits *data.Object) error {
 	for {
 		tok := p.GetToken()
 		if tok == nil {
-			return p.EndOfFileError()
+			return nil, p.EndOfFileError()
 		}
 		if tok.Type == NEWLINE {
 			continue
@@ -771,17 +779,17 @@ func (p *Parser) parseStructure(traits *data.Object) error {
 		if tok.Type == AT {
 			mtraits, err = p.parseTrait(mtraits)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		} else if tok.Type == SYMBOL {
 			fname := tok.Text
 			err = p.expect(COLON)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			ftype, err := p.expectShapeId()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			err = p.ignore(COMMA)
 			if comment != "" {
@@ -798,11 +806,20 @@ func (p *Parser) parseStructure(traits *data.Object) error {
 				comment = p.MergeComment(comment, tok.Text[1:])
 			}
 		} else {
-			return p.SyntaxError()
+			return nil, p.SyntaxError()
 		}
 	}
 	shape.Members = mems
-	return p.addShapeDefinition(name, shape)
+	return shape, nil
+}
+
+func (p *Parser) parseStructure(traits *data.Object) error {
+	name, err := p.ExpectIdentifier()
+	if err != nil {
+		return err
+	}
+	body, err := p.parseStructureBody(traits)
+	return p.addShapeDefinition(name, body)
 }
 
 func (p *Parser) parseUnion(traits *data.Object) error {
@@ -907,9 +924,49 @@ func (p *Parser) parseOperation(traits *data.Object) error {
 		}
 		switch fname {
 		case "input":
-			shape.Input, err = p.expectShapeRef()
+			tok := p.GetToken()
+			if tok == nil {
+				return p.EndOfFileError()
+			}
+			if tok.Type == EQUALS {
+				if p.version < 2 {
+					err = p.SyntaxError()
+				} else {
+					traits = data.ObjectFromMap(map[string]interface{}{"smithy.api#input": data.NewObject()})
+					body, err := p.parseStructureBody(traits)
+					if err != nil {
+						return err
+					}
+					inName := name + "Input"
+					shape.Input = &ShapeRef{Target: p.ensureNamespaced(inName)}
+					p.addShapeDefinition(inName, body)
+				}
+			} else {
+				p.UngetToken()
+				shape.Input, err = p.expectShapeRef()
+			}
 		case "output":
-			shape.Output, err = p.expectShapeRef()
+			tok := p.GetToken()
+			if tok == nil {
+				return p.EndOfFileError()
+			}
+			if tok.Type == EQUALS {
+				if p.version < 2 {
+					err = p.SyntaxError()
+				} else {
+					traits = data.ObjectFromMap(map[string]interface{}{"smithy.api#output": data.NewObject()})
+					body, err := p.parseStructureBody(traits)
+					if err != nil {
+						return err
+					}
+					outName := name + "Output"
+					shape.Output = &ShapeRef{Target: p.ensureNamespaced(outName)}
+					p.addShapeDefinition(outName, body)
+				}
+			} else {
+				p.UngetToken()
+				shape.Output, err = p.expectShapeRef()
+			}
 		case "errors":
 			shape.Errors, err = p.expectShapeRefs()
 		default:

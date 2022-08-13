@@ -25,7 +25,6 @@ import (
 	"github.com/boynton/data"
 )
 
-const SmithyVersion = "1.0"
 const UnspecifiedNamespace = "example"
 const UnspecifiedVersion = "0.0"
 
@@ -33,6 +32,13 @@ type AST struct {
 	Smithy   string       `json:"smithy"`
 	Metadata *data.Object `json:"metadata,omitempty"`
 	Shapes   *Shapes      `json:"shapes,omitempty"`
+}
+
+func (ast *AST) AssemblyVersion() int {
+	if strings.HasPrefix(ast.Smithy, "1") {
+		return 1
+	}
+	return 2
 }
 
 // a Shapes object is a map from Shape ID to *Shape. It preserves the order of its keys, unlike a Go map
@@ -369,7 +375,11 @@ func LoadAST(path string) (*AST, error) {
 
 func (ast *AST) Merge(src *AST) error {
 	if ast.Smithy != src.Smithy {
-		return fmt.Errorf("Smithy version mismatch. Expected %s, got %s\n", ast.Smithy, src.Smithy)
+		if strings.HasPrefix(ast.Smithy, "1") && strings.HasPrefix(src.Smithy, "2") {
+			ast.Smithy = src.Smithy
+		} else {
+			fmt.Println("//WARNING: smithy version mismatch:", ast.Smithy, "and", src.Smithy)
+		}
 	}
 	if src.Metadata != nil {
 		if ast.Metadata == nil {
