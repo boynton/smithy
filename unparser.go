@@ -504,7 +504,6 @@ func (w *IdlWriter) EmitEnumShape(name string, shape *Shape) {
 		eqval := ""
 		if val := mem.Traits.Get("smithy.api#enumValue"); val != nil {
 			sval = data.AsString(val)
-			fmt.Println("sval, fname:", sval, fname)
 			if sval != fname {
 				eqval = fmt.Sprintf(" = %q", sval)
 			}
