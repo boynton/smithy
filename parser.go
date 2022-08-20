@@ -66,7 +66,7 @@ func (p *Parser) Parse() error {
 	var comment string
 	var traits *data.Object
 	p.ast = &AST{
-		Smithy: "1.0",
+		Smithy: "2",
 	}
 	for {
 		var err error
