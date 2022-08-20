@@ -202,7 +202,8 @@ type Shape struct {
 	Value *Member `json:"value,omitempty"`
 
 	//Structure and Union
-	Members *Members `json:"members,omitempty"` //keys must be case-insensitively unique. For union, len(Members) > 0,
+	Members *Members    `json:"members,omitempty"` //keys must be case-insensitively unique. For union, len(Members) > 0,
+	Mixins  []*ShapeRef `json:"mixins,omitempty"`  //mixins for the shape
 
 	//Resource
 	Identifiers map[string]*ShapeRef `json:"identifiers,omitempty"`

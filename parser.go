@@ -95,6 +95,10 @@ func (p *Parser) Parse() error {
 				traits, comment = withCommentTrait(traits, comment)
 				err = p.parseSimpleTypeDef(tok.Text, traits)
 				traits = nil
+			case "enum":
+				traits, comment = withCommentTrait(traits, comment)
+				err = p.parseEnum(traits)
+				traits = nil
 			case "structure":
 				traits, comment = withCommentTrait(traits, comment)
 				err = p.parseStructure(traits)
@@ -603,7 +607,48 @@ func (p *Parser) parseSimpleTypeDef(typeName string, traits *data.Object) error 
 		Type:   typeName,
 		Traits: traits,
 	}
+	mixins, err := p.optionalMixins()
+	if err != nil {
+		return err
+	}
+	for _, mixin := range mixins {
+		shape.Mixins = append(shape.Mixins, &ShapeRef{Target: p.ensureNamespaced(mixin)})
+	}
 	return p.addShapeDefinition(tname, shape)
+}
+
+func (p *Parser) optionalMixins() ([]string, error) {
+	tok := p.GetToken()
+	if tok == nil {
+		return nil, p.EndOfFileError()
+	}
+	var mixins []string
+	if tok.Type == SYMBOL && tok.Text == "with" {
+		err := p.expect(OPEN_BRACKET)
+		if err != nil {
+			return nil, err
+		}
+		for {
+			tok = p.GetToken()
+			if tok == nil {
+				return nil, p.EndOfFileError()
+			}
+			if tok.Type == CLOSE_BRACKET {
+				break
+			}
+			if tok.Type == SYMBOL {
+				mixins = append(mixins, tok.Text)
+			}
+		}
+	}
+	return mixins, nil
+}
+
+func (p *Parser) mixIn(shape *Shape, mixinName string) error {
+	fmt.Println("mix ", mixinName, " to ", shape)
+	//1. loop up the mixin shape. But: forward references?
+	//1. verify the mixin trait is present
+	return nil
 }
 
 func (p *Parser) parseCollection(sname string, traits *data.Object) error {
@@ -870,6 +915,69 @@ func (p *Parser) parseUnion(traits *data.Object) error {
 			err = p.ignore(COMMA)
 			mems.Put(fname, &Member{
 				Target: p.ensureNamespaced(ftype),
+				Traits: mtraits,
+			})
+			mtraits = nil
+		} else {
+			return p.SyntaxError()
+		}
+	}
+	shape.Members = mems
+	return p.addShapeDefinition(name, shape)
+}
+
+func (p *Parser) parseEnum(traits *data.Object) error {
+	name, err := p.ExpectIdentifier()
+	if err != nil {
+		return err
+	}
+	tok := p.GetToken()
+	if tok == nil {
+		return p.EndOfFileError()
+	}
+	if tok.Type != OPEN_BRACE {
+		return p.SyntaxError()
+	}
+	shape := &Shape{
+		Type:   "enum",
+		Traits: traits,
+	}
+	mems := NewMembers()
+	var mtraits *data.Object
+	for {
+		tok := p.GetToken()
+		if tok == nil {
+			return p.EndOfFileError()
+		}
+		if tok.Type == NEWLINE {
+			continue
+		}
+		if tok.Type == CLOSE_BRACE {
+			break
+		}
+		if tok.Type == AT {
+			mtraits, err = p.parseTrait(mtraits)
+			if err != nil {
+				return err
+			}
+		} else if tok.Type == SYMBOL {
+			fname := tok.Text
+			tok = p.GetToken()
+			if tok == nil {
+				return p.EndOfFileError()
+			}
+			if tok.Type == EQUALS {
+				value, err := p.ExpectString()
+				if err != nil {
+					return err
+				}
+				mtraits = withTrait(mtraits, "smithy.api#enumValue", value)
+			} else {
+				p.UngetToken()
+			}
+			err = p.ignore(COMMA)
+			mems.Put(fname, &Member{
+				Target: "smithy.api#Unit",
 				Traits: mtraits,
 			})
 			mtraits = nil
@@ -1245,7 +1353,7 @@ func (p *Parser) parseTrait(traits *data.Object) (*data.Object, error) {
 		}
 		traits, _ = withCommentTrait(traits, s)
 		return traits, nil
-	case "httpQuery", "httpHeader", "error", "pattern", "title", "timestampFormat": //strings
+	case "httpQuery", "httpHeader", "error", "pattern", "title", "timestampFormat", "enumValue": //strings
 		err := p.expect(OPEN_PAREN)
 		if err != nil {
 			return traits, err

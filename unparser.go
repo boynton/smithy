@@ -235,9 +235,6 @@ func (w *IdlWriter) Emit(format string, args ...interface{}) {
 
 func (w *IdlWriter) EmitShape(name string, shape *Shape) {
 	s := strings.ToLower(shape.Type)
-	if s == "service" {
-		return
-	}
 	w.Emit("\n")
 	switch s {
 	case "boolean":
@@ -258,9 +255,11 @@ func (w *IdlWriter) EmitShape(name string, shape *Shape) {
 		w.EmitStructureShape(name, shape)
 	case "union":
 		w.EmitUnionShape(name, shape)
+	case "enum":
+		w.EmitEnumShape(name, shape)
 	case "resource":
 		w.EmitResourceShape(name, shape)
-	case "operation":
+	case "operation", "service":
 		// already emitted
 		// w.EmitOperationShape(name, shape, emitted)
 	default:
@@ -425,55 +424,93 @@ func (w *IdlWriter) EmitHttpErrorTrait(rv interface{}, indent string) {
 	}
 }
 
-func (w *IdlWriter) EmitSimpleShape(shapeName, name string) {
-	w.Emit("%s %s\n", shapeName, name)
+func (w *IdlWriter) EmitSimpleShape(shapeName, name string, shape *Shape) {
+	w.Emit("%s %s%s\n", shapeName, name, w.withMixins(shape.Mixins))
 }
 
 func (w *IdlWriter) EmitBooleanShape(name string, shape *Shape) {
 	w.EmitTraits(shape.Traits, "")
-	w.EmitSimpleShape("boolean", name)
+	w.EmitSimpleShape("boolean", name, shape)
 }
 
 func (w *IdlWriter) EmitNumericShape(shapeName, name string, shape *Shape) {
 	w.EmitTraits(shape.Traits, "")
-	w.EmitSimpleShape(shapeName, name)
+	w.EmitSimpleShape(shapeName, name, shape)
 }
 
 func (w *IdlWriter) EmitStringShape(name string, shape *Shape) {
 	w.EmitTraits(shape.Traits, "")
-	w.Emit("%s %s\n", shape.Type, name)
+	w.EmitSimpleShape(shape.Type, name, shape)
+}
+
+func (w *IdlWriter) withMixins(mixins []*ShapeRef) string {
+	if len(mixins) == 0 {
+		return ""
+	}
+	var mixinNames []string
+	for _, ref := range mixins {
+		mixinNames = append(mixinNames, w.stripNamespace(ref.Target))
+	}
+	return fmt.Sprintf(" with [%s]", strings.Join(mixinNames, ", "))
 }
 
 func (w *IdlWriter) EmitTimestampShape(name string, shape *Shape) {
 	w.EmitTraits(shape.Traits, "")
-	w.Emit("timestamp %s\n", name)
+	w.Emit("timestamp %s%s\n", name, w.withMixins(shape.Mixins))
 }
 
 func (w *IdlWriter) EmitBlobShape(name string, shape *Shape) {
 	w.EmitTraits(shape.Traits, "")
-	w.Emit("blob %s\n", name)
+	w.Emit("blob %s%s\n", name, w.withMixins(shape.Mixins))
 }
 
 func (w *IdlWriter) EmitCollectionShape(shapeName, name string, shape *Shape) {
 	w.EmitTraits(shape.Traits, "")
-	w.Emit("%s %s {\n", shapeName, name)
+	w.Emit("%s %s%s {\n", shapeName, name, w.withMixins(shape.Mixins))
 	w.Emit("    member: %s\n", w.stripNamespace(shape.Member.Target))
 	w.Emit("}\n")
 }
 
 func (w *IdlWriter) EmitMapShape(name string, shape *Shape) {
 	w.EmitTraits(shape.Traits, "")
-	w.Emit("map %s {\n    key: %s,\n    value: %s\n}\n", name, w.stripNamespace(shape.Key.Target), w.stripNamespace(shape.Value.Target))
+	w.Emit("map %s%s {\n    key: %s,\n    value: %s\n}\n", name, w.withMixins(shape.Mixins), w.stripNamespace(shape.Key.Target), w.stripNamespace(shape.Value.Target))
 }
 
 func (w *IdlWriter) EmitUnionShape(name string, shape *Shape) {
 	w.EmitTraits(shape.Traits, "")
-	w.Emit("union %s {\n", name)
+	w.Emit("union %s%s {\n", name, w.withMixins(shape.Mixins))
 	count := shape.Members.Length()
 	for _, fname := range shape.Members.Keys() {
 		mem := shape.Members.Get(fname)
 		w.EmitTraits(mem.Traits, IndentAmount)
 		w.Emit("%s%s: %s", IndentAmount, fname, w.stripNamespace(mem.Target))
+		count--
+		if count > 0 {
+			w.Emit(",\n")
+		} else {
+			w.Emit("\n")
+		}
+	}
+	w.Emit("}\n")
+}
+
+func (w *IdlWriter) EmitEnumShape(name string, shape *Shape) {
+	w.EmitTraits(shape.Traits, "")
+	w.Emit("enum %s%s {\n", name, w.withMixins(shape.Mixins))
+	count := shape.Members.Length()
+	for _, fname := range shape.Members.Keys() {
+		mem := shape.Members.Get(fname)
+		sval := fname
+		eqval := ""
+		if val := mem.Traits.Get("smithy.api#enumValue"); val != nil {
+			sval = data.AsString(val)
+			fmt.Println("sval, fname:", sval, fname)
+			if sval != fname {
+				eqval = fmt.Sprintf(" = %q", sval)
+			}
+		}
+		w.EmitTraits(mem.Traits, IndentAmount)
+		w.Emit("%s%s%s", IndentAmount, fname, eqval)
 		count--
 		if count > 0 {
 			w.Emit(",\n")
@@ -499,7 +536,7 @@ func (w *IdlWriter) EmitTraits(traits *data.Object, indent string) {
 	for _, k := range traits.Keys() {
 		v := traits.Get(k)
 		switch k {
-		case "smithy.api#documentation", "smithy.api#examples":
+		case "smithy.api#documentation", "smithy.api#examples", "smithy.api#enumValue":
 			//do nothing, handled elsewhere
 		case "smithy.api#sensitive", "smithy.api#required", "smithy.api#readonly", "smithy.api#idempotent":
 			w.EmitBooleanTrait(data.AsBool(v), w.stripNamespace(k), indent)
@@ -582,7 +619,7 @@ func (w *IdlWriter) EmitStructureShape(name string, shape *Shape) {
 		comma = ","
 	}
 	w.EmitTraits(shape.Traits, "")
-	w.Emit("structure %s {\n", name)
+	w.Emit("structure %s%s {\n", name, w.withMixins(shape.Mixins))
 	for i, k := range shape.Members.Keys() {
 		if i > 0 {
 			w.Emit("\n")
@@ -637,7 +674,7 @@ func (w *IdlWriter) EmitServiceShape(name string, shape *Shape) {
 		comma = ","
 	}
 	w.EmitTraits(shape.Traits, "")
-	w.Emit("service %s {\n", name)
+	w.Emit("service %s%s {\n", name, w.withMixins(shape.Mixins))
 	w.Emit("    version: %q%s\n", shape.Version, comma)
 	if len(shape.Operations) > 0 {
 		w.Emit("    %s\n", w.listOfShapeRefs("operations", "%s", shape.Operations, false))
@@ -650,7 +687,7 @@ func (w *IdlWriter) EmitServiceShape(name string, shape *Shape) {
 
 func (w *IdlWriter) EmitResourceShape(name string, shape *Shape) {
 	w.EmitTraits(shape.Traits, "")
-	w.Emit("resource %s {\n", name)
+	w.Emit("resource %s%s {\n", name, w.withMixins(shape.Mixins))
 	if len(shape.Identifiers) > 0 {
 		w.Emit("    identifiers: {\n")
 		for k, v := range shape.Identifiers {
@@ -701,33 +738,43 @@ func (w *IdlWriter) EmitOperationShape(name string, shape *Shape, emitted map[st
 		outputShape = w.ast.GetShape(shape.Output.Target)
 	}
 	w.EmitTraits(shape.Traits, "")
-	w.Emit("operation %s {\n", name)
+	w.Emit("operation %s%s {\n", name, w.withMixins(shape.Mixins))
 	if w.version == 2 {
-		if inputShape != nil { //probably should require the @input trait before inlining.
-			w.Emit("%sinput := {\n", IndentAmount)
-			i2 := IndentAmount + IndentAmount
-			for i, k := range inputShape.Members.Keys() {
-				if i > 0 {
-					w.Emit("\n")
+		if inputShape != nil {
+			if b := inputShape.Traits.Get("smithy.api#input"); b != nil {
+				inputTraits := "" //?
+				inputMixins := w.withMixins(inputShape.Mixins)
+				w.Emit("%sinput := %s%s{\n", IndentAmount, inputTraits, inputMixins)
+				i2 := IndentAmount + IndentAmount
+				for i, k := range inputShape.Members.Keys() {
+					if i > 0 {
+						w.Emit("\n")
+					}
+					v := inputShape.Members.Get(k)
+					w.EmitTraits(v.Traits, i2)
+					w.Emit("%s%s: %s\n", i2, k, w.stripNamespace(v.Target))
 				}
-				v := inputShape.Members.Get(k)
-				w.EmitTraits(v.Traits, i2)
-				w.Emit("%s%s: %s\n", i2, k, w.stripNamespace(v.Target))
+				w.Emit("%s}\n", IndentAmount)
+			} else {
+				w.Emit("%sinput: %s,\n", IndentAmount, w.stripNamespace(inputName))
 			}
-			w.Emit("%s}\n", IndentAmount)
 		}
 		if outputShape != nil { //probably should require the @output trait before inlining.
-			w.Emit("%soutput := {\n", IndentAmount)
-			i2 := IndentAmount + IndentAmount
-			for i, k := range outputShape.Members.Keys() {
-				if i > 0 {
-					w.Emit("\n")
+			if b := outputShape.Traits.Get("smithy.api#output"); b != nil {
+				w.Emit("%soutput := {\n", IndentAmount)
+				i2 := IndentAmount + IndentAmount
+				for i, k := range outputShape.Members.Keys() {
+					if i > 0 {
+						w.Emit("\n")
+					}
+					v := outputShape.Members.Get(k)
+					w.EmitTraits(v.Traits, i2)
+					w.Emit("%s%s: %s\n", i2, k, w.stripNamespace(v.Target))
 				}
-				v := outputShape.Members.Get(k)
-				w.EmitTraits(v.Traits, i2)
-				w.Emit("%s%s: %s\n", i2, k, w.stripNamespace(v.Target))
+				w.Emit("%s}\n", IndentAmount)
+			} else {
+				w.Emit("%soutput: %s,\n", IndentAmount, w.stripNamespace(outputName))
 			}
-			w.Emit("%s}\n", IndentAmount)
 		}
 		if len(shape.Errors) > 0 {
 			w.Emit("    %s\n", w.listOfShapeRefs("errors", "%s", shape.Errors, false))
