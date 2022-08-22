@@ -620,7 +620,7 @@ func (p *Parser) parseSimpleTypeDef(typeName string, traits *data.Object) error 
 func (p *Parser) optionalMixins() ([]string, error) {
 	tok := p.GetToken()
 	if tok == nil {
-		return nil, p.EndOfFileError()
+		return nil, nil
 	}
 	var mixins []string
 	if tok.Type == SYMBOL && tok.Text == "with" {
