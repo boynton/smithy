@@ -1,17 +1,17 @@
 /*
-   Copyright 2021 Lee R. Boynton
+Copyright 2021 Lee R. Boynton
 
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-       http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
 package smithy
 
@@ -39,8 +39,112 @@ func (gen *SadlGenerator) Generate(ast *AST, config *data.Object) error {
 		fbase = "model"
 	}
 	fname := gen.FileName(fbase, ".sadl")
+	err = gen.Validate(ns, ast)
+	if err != nil {
+		return err
+	}
 	s := gen.ToSadl(ns, ast)
 	return gen.Emit(s, fname, "")
+}
+
+func (gen *SadlGenerator) Validate(ns string, ast *AST) error {
+	for _, nsk := range ast.Shapes.Keys() {
+		shape := ast.GetShape(nsk)
+		if shape == nil {
+			return fmt.Errorf("Undefined shape: %s\n", nsk)
+		}
+		lst := strings.Split(nsk, "#")
+		k := lst[1]
+		if shape.Type == "operation" {
+			err := gen.validateOperation(lst[0], k, shape, ast)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (gen *SadlGenerator) validateOperation(ns, n string, shape *Shape, ast *AST) error {
+	fullName := ns + "#" + n
+	httpTrait := shape.Traits.GetObject("smithy.api#http")
+	if httpTrait == nil {
+		return fmt.Errorf("Operation without @http trait not valid for SADL: %s", fullName)
+	}
+	method := httpTrait.GetString("method")
+	expectInputPayload := method == "PUT" || method == "POST" || method == "PATCH"
+	inputPayload := false
+	if shape.Input != nil {
+		inShape := ast.GetShape(shape.Input.Target)
+		if inShape == nil {
+			return fmt.Errorf("Undefined shape: %s\n", shape.Input.Target)
+		}
+		for _, k := range inShape.Members.Keys() {
+			var isPayload, isHeader, isQuery, isLabel bool
+			v := inShape.Members.Get(k)
+			if v.Traits != nil {
+				if v.Traits.Has("smithy.api#httpPayload") {
+					if inputPayload {
+						return fmt.Errorf("More than one @httpPayload specified in the input for operation %s", fullName)
+					}
+					inputPayload = true
+					isPayload = true
+				} else if v.Traits.Has("smithy.api#httpHeader") {
+					//check header value
+					isHeader = true
+				} else if v.Traits.Has("smithy.api#httpLabel") {
+					//check that label is present in path template
+					isLabel = true
+				} else if v.Traits.Has("smithy.api#httpQuery") {
+					isQuery = true
+				}
+				if !isPayload && !isHeader && !isQuery && !isLabel {
+					return fmt.Errorf("An input with no HTTP binding is present in operation %s: %s", fullName, k)
+				}
+			} else {
+				return fmt.Errorf("An input with no HTTP binding is present in operation %s: %s", fullName, k)
+			}
+		}
+	}
+	if inputPayload != expectInputPayload {
+		if inputPayload {
+			return fmt.Errorf("HTTP operation '%s' with method %s expects no input payload, but one was specified", fullName, method)
+		} else {
+			return fmt.Errorf("HTTP operation '%s' with method %s expects an input payload, but none is specified", fullName, method)
+		}
+	}
+	status := httpTrait.GetInt("code")
+	expectOutputPayload := status != 204 && status != 304
+	outputPayload := false
+	if shape.Output != nil {
+		outShape := ast.GetShape(shape.Output.Target)
+		if outShape == nil {
+			return fmt.Errorf("Undefined shape: %s\n", shape.Output.Target)
+		}
+		for _, k := range outShape.Members.Keys() {
+			v := outShape.Members.Get(k)
+			if v.Traits != nil {
+				if v.Traits.Has("smithy.api#httpPayload") {
+					if outputPayload {
+						return fmt.Errorf("More than one @httpPayload specified in output for operation %s", fullName)
+					}
+					outputPayload = true
+				} else if !v.Traits.Has("smithy.api#httpHeader") {
+					return fmt.Errorf("An output with no HTTP binding is present in operation %s: %s", fullName, k)
+				}
+			} else {
+				return fmt.Errorf("An output with no HTTP binding is present in operation %s: %s", fullName, k)
+			}
+		}
+	}
+	if outputPayload != expectOutputPayload {
+		if outputPayload {
+			return fmt.Errorf("HTTP operation '%s' with code %d expects no output payload, but one was specified", fullName, status)
+		} else {
+			return fmt.Errorf("HTTP operation '%s' with code %d expects an output payload, but none is specified", fullName, status)
+		}
+	}
+	return nil
 }
 
 type SadlWriter struct {
@@ -73,11 +177,6 @@ func (gen *SadlGenerator) ToSadl(ns string, ast *AST) string {
 	for _, nsk := range ast.Shapes.Keys() {
 		lst := strings.Split(nsk, "#")
 		shape := ast.GetShape(nsk)
-		if shape == nil {
-			fmt.Println("whoops:", nsk)
-			//panic("Undefined shape")
-			continue
-		}
 		k := lst[1]
 		if shape.Type == "operation" {
 			w.EmitShape(k, shape)
@@ -114,12 +213,6 @@ func (gen *SadlGenerator) ToSadl(ns string, ast *AST) string {
 				for _, ex := range d {
 					w.EmitExample(shape, data.AsObject(ex))
 				}
-				/*				switch v := d.(type) {
-								case []map[string]interface{}:
-									//w.EmitExamplesTrait(nsk, v)
-									fmt.Println("FIX ME: example", v)
-								}
-				*/
 			}
 		}
 	}
