@@ -95,9 +95,9 @@ func (p *Parser) Parse() error {
 				traits, comment = withCommentTrait(traits, comment)
 				err = p.parseSimpleTypeDef(tok.Text, traits)
 				traits = nil
-			case "enum":
+			case "enum", "intEnum":
 				traits, comment = withCommentTrait(traits, comment)
-				err = p.parseEnum(traits)
+				err = p.parseEnum(traits, tok.Text == "intEnum")
 				traits = nil
 			case "structure":
 				traits, comment = withCommentTrait(traits, comment)
@@ -107,9 +107,14 @@ func (p *Parser) Parse() error {
 				traits, comment = withCommentTrait(traits, comment)
 				err = p.parseUnion(traits)
 				traits = nil
-			case "list", "set": //v2: set not longer supported
+			case "set":
+				p.Warning("Deprecated shape: set")
 				traits, comment = withCommentTrait(traits, comment)
-				err = p.parseCollection(tok.Text, traits)
+				err = p.parseList(traits)
+				traits = nil
+			case "list":
+				traits, comment = withCommentTrait(traits, comment)
+				err = p.parseList(traits)
 				traits = nil
 			case "map":
 				traits, comment = withCommentTrait(traits, comment)
@@ -434,6 +439,10 @@ func (p *Parser) SyntaxError() error {
 	return p.Error("Syntax error")
 }
 
+func (p *Parser) Warning(msg string) {
+	fmt.Fprintf(os.Stderr, "[WARNING]: %s\n", FormattedAnnotation(p.path, p.source, "", msg, p.lastToken, RED, 5))
+}
+
 func (p *Parser) EndOfFileError() error {
 	return p.Error("Unexpected end of file")
 }
@@ -603,6 +612,49 @@ func (p *Parser) parseSimpleTypeDef(typeName string, traits *data.Object) error 
 	if err != nil {
 		return err
 	}
+	enumItems := traits.GetArray("smithy.api#enum")
+	if enumItems != nil {
+		//convert to enum shape
+		var tr *data.Object
+		for _, k := range traits.Keys() {
+			if k != "smithy.api#enum" {
+				tr = withTrait(tr, k, traits.Get(k))
+			}
+		}
+		enumShapeName := "enum"
+		if typeName == "integer" {
+			enumShapeName = "intEnum"
+		}
+		shape := &Shape{
+			Type:   enumShapeName,
+			Traits: tr,
+		}
+		mems := NewMembers()
+		for _, e := range enumItems {
+			var mtraits *data.Object
+			d := data.AsObject(e)
+			name := d.GetString("name") //optional
+			if enumShapeName == "intEnum" {
+				ivalue := d.GetInt("value") //required
+				mtraits = withTrait(mtraits, "smithy.api#enumValue", ivalue)
+			} else {
+				svalue := d.GetString("value") //required
+				if name == "" {
+					name = svalue
+					svalue = ""
+				}
+				if svalue != "" {
+					mtraits = withTrait(mtraits, "smithy.api#enumValue", svalue)
+				}
+			}
+			mems.Put(name, &Member{
+				Target: "smithy.api#Unit",
+				Traits: mtraits,
+			})
+		}
+		shape.Members = mems
+		return p.addShapeDefinition(tname, shape)
+	}
 	shape := &Shape{
 		Type:   typeName,
 		Traits: traits,
@@ -644,14 +696,8 @@ func (p *Parser) optionalMixins() ([]string, error) {
 	return mixins, nil
 }
 
-func (p *Parser) mixIn(shape *Shape, mixinName string) error {
-	fmt.Println("mix ", mixinName, " to ", shape)
-	//1. loop up the mixin shape. But: forward references?
-	//1. verify the mixin trait is present
-	return nil
-}
-
-func (p *Parser) parseCollection(sname string, traits *data.Object) error {
+func (p *Parser) parseList(traits *data.Object) error {
+	sname := "list"
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -864,6 +910,9 @@ func (p *Parser) parseStructure(traits *data.Object) error {
 		return err
 	}
 	body, err := p.parseStructureBody(traits)
+	if err != nil {
+		return err
+	}
 	return p.addShapeDefinition(name, body)
 }
 
@@ -926,7 +975,7 @@ func (p *Parser) parseUnion(traits *data.Object) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseEnum(traits *data.Object) error {
+func (p *Parser) parseEnum(traits *data.Object, intEnum bool) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -938,8 +987,12 @@ func (p *Parser) parseEnum(traits *data.Object) error {
 	if tok.Type != OPEN_BRACE {
 		return p.SyntaxError()
 	}
+	tname := "enum"
+	if intEnum {
+		tname = "intEnum"
+	}
 	shape := &Shape{
-		Type:   "enum",
+		Type:   tname,
 		Traits: traits,
 	}
 	mems := NewMembers()
@@ -967,11 +1020,21 @@ func (p *Parser) parseEnum(traits *data.Object) error {
 				return p.EndOfFileError()
 			}
 			if tok.Type == EQUALS {
-				value, err := p.ExpectString()
-				if err != nil {
-					return err
+				var v interface{}
+				if intEnum {
+					value, err := p.ExpectInt()
+					if err != nil {
+						return err
+					}
+					v = value
+				} else {
+					value, err := p.ExpectString()
+					if err != nil {
+						return err
+					}
+					v = value
 				}
-				mtraits = withTrait(mtraits, "smithy.api#enumValue", value)
+				mtraits = withTrait(mtraits, "smithy.api#enumValue", v)
 			} else {
 				p.UngetToken()
 			}
@@ -1226,8 +1289,10 @@ func IsPreludeType(name string) bool {
 		return true
 	case "Byte", "Short", "Integer", "Long", "Float", "Double":
 		return true
-	case "PrimitiveByte", "PrimitiveShort", "PrimitiveInteger", "PrimitiveLong", "PrimitiveFloat", "PrimitiveDouble":
+		/* v1 only, v2 does not support Primitive types, nor the boxed trait.
+		   case "PrimitiveByte", "PrimitiveShort", "PrimitiveInteger", "PrimitiveLong", "PrimitiveFloat", "PrimitiveDouble":
 		return true
+		*/
 	}
 	return false
 }
@@ -1416,6 +1481,7 @@ func (p *Parser) parseTrait(traits *data.Object) (*data.Object, error) {
 		}
 		return withTrait(traits, "smithy.api#paginated", args), nil
 	case "enum":
+		p.Warning("Deprecated trait: enum")
 		_, lit, err := p.parseTraitArgs()
 		if err != nil {
 			return traits, err

@@ -253,8 +253,8 @@ func (w *IdlWriter) EmitShape(name string, shape *Shape) {
 		w.EmitStructureShape(name, shape)
 	case "union":
 		w.EmitUnionShape(name, shape)
-	case "enum":
-		w.EmitEnumShape(name, shape)
+	case "enum", "intenum":
+		w.EmitEnumShape(shape.Type, name, shape)
 	case "resource":
 		w.EmitResourceShape(name, shape)
 	case "operation", "service":
@@ -312,18 +312,6 @@ func (w *IdlWriter) EmitRangeTrait(v interface{}, indent string) {
 		w.Emit("@range(max: %v)\n", data.AsDecimal(max))
 	} else if min != nil {
 		w.Emit("@range(min: %v)\n", data.AsDecimal(min))
-	}
-}
-
-func (w *IdlWriter) EmitEnumTrait(v interface{}, indent string) {
-	en := v.([]interface{})
-	if len(en) > 0 {
-		s := data.Pretty(en)
-		slen := len(s)
-		if slen > 0 && s[slen-1] == '\n' {
-			s = s[:slen-1]
-		}
-		w.Emit("@enum(%s)\n", s)
 	}
 }
 
@@ -492,7 +480,7 @@ func (w *IdlWriter) EmitUnionShape(name string, shape *Shape) {
 	w.Emit("}\n")
 }
 
-func (w *IdlWriter) EmitEnumShape(name string, shape *Shape) {
+func (w *IdlWriter) EmitEnumShape(enumType string, name string, shape *Shape) {
 	w.EmitTraits(shape.Traits, "")
 	w.Emit("enum %s%s {\n", name, w.withMixins(shape.Mixins))
 	count := shape.Members.Length()
@@ -501,9 +489,14 @@ func (w *IdlWriter) EmitEnumShape(name string, shape *Shape) {
 		sval := fname
 		eqval := ""
 		if val := mem.Traits.Get("smithy.api#enumValue"); val != nil {
-			sval = data.AsString(val)
-			if sval != fname {
-				eqval = fmt.Sprintf(" = %q", sval)
+			if enumType == "intEnum" {
+				dval := data.AsInt(val)
+				eqval = fmt.Sprintf(" = %d", dval)
+			} else {
+				sval = data.AsString(val)
+				if sval != fname {
+					eqval = fmt.Sprintf(" = %q", sval)
+				}
 			}
 		}
 		w.EmitTraits(mem.Traits, IndentAmount)
@@ -551,8 +544,6 @@ func (w *IdlWriter) EmitTraits(traits *data.Object, indent string) {
 			w.EmitLengthTrait(v, indent)
 		case "smithy.api#range":
 			w.EmitRangeTrait(v, indent)
-		case "smithy.api#enum":
-			w.EmitEnumTrait(v, indent)
 		case "smithy.api#tags":
 			w.EmitTagsTrait(v, indent)
 		case "smithy.api#pattern", "smithy.api#error":

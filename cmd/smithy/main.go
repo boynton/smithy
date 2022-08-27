@@ -55,7 +55,7 @@ func main() {
 	}
 	ast, err := AssembleModel(files, tags)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(2)
 	}
 	if *pList {
@@ -79,7 +79,7 @@ func main() {
 		err = generator.Generate(ast, conf)
 	}
 	if err != nil {
-		fmt.Printf("*** %v\n", err)
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(4)
 	}
 }

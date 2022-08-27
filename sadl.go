@@ -60,7 +60,20 @@ func (gen *SadlGenerator) Validate(ns string, ast *AST) error {
 			if err != nil {
 				return err
 			}
+		} else {
+			err := gen.validateType(lst[0], k, shape, ast)
+			if err != nil {
+				return err
+			}
 		}
+	}
+	return nil
+}
+
+func (gen *SadlGenerator) validateType(ns, n string, shape *Shape, ast *AST) error {
+	switch shape.Type {
+	case "intEnum":
+		return fmt.Errorf("intEnum not supported by SADL: %s#%s", ns, n)
 	}
 	return nil
 }
@@ -235,11 +248,6 @@ func (w *SadlWriter) EmitShape(name string, shape *Shape) {
 	}
 	w.Emit("\n")
 	opts := w.traitsAsAnnotations(shape.Traits)
-	enumItems := shape.Traits.GetArray("smithy.api#enum")
-	if enumItems != nil {
-		w.EmitEnum(name, shape, enumItems)
-		return
-	}
 	switch s {
 	case "boolean":
 		w.EmitBooleanShape(name, shape)
@@ -255,8 +263,8 @@ func (w *SadlWriter) EmitShape(name string, shape *Shape) {
 		w.EmitNumericShape("Float32", name, shape)
 	case "double":
 		w.EmitNumericShape("Float64", name, shape)
-	case "bigInteger":
-	case "bigDecimal":
+	case "biginteger":
+	case "bigdecimal":
 		w.EmitNumericShape("Decimal", name, shape)
 	case "blob":
 		w.EmitBlobShape(name, shape)
@@ -264,7 +272,7 @@ func (w *SadlWriter) EmitShape(name string, shape *Shape) {
 		w.EmitStringShape(name, shape)
 	case "timestamp":
 		w.EmitTimestampShape(name, shape)
-	case "list", "set":
+	case "list":
 		w.EmitCollectionShape(shape.Type, name, shape)
 	case "map":
 		w.EmitMapShape(name, shape)
@@ -272,6 +280,8 @@ func (w *SadlWriter) EmitShape(name string, shape *Shape) {
 		w.EmitStructureShape(name, shape, opts)
 	case "union":
 		w.EmitUnionShape(name, shape)
+	case "enum":
+		w.EmitEnumShape(name, shape)
 	case "resource":
 		//no equivalent in SADL at the moment
 	case "operation":
@@ -288,23 +298,13 @@ func (w *SadlWriter) EmitShapeComment(shape *Shape) {
 	}
 }
 
-func (w *SadlWriter) EmitEnum(name string, shape *Shape, lst []interface{}) {
+func (w *SadlWriter) EmitEnumShape(name string, shape *Shape) {
 	w.EmitShapeComment(shape)
 	w.Emit("type %s Enum {\n", name)
-	for _, r := range lst {
-		if m, ok := r.(map[string]interface{}); ok {
-			//just use the name, ignore the value.
-			if v, ok := m["name"]; ok {
-				if s, ok := v.(string); ok {
-					w.Emit("    %s\n", s)
-				} else if s, ok := v.(*string); ok {
-					w.Emit("    %s\n", *s)
-				} else {
-					fmt.Println("r:", r)
-					panic("Enum name is not a string?!")
-				}
-			}
-		}
+	for _, k := range shape.Members.Keys() {
+		//v := shape.Members.Get(k)
+		//ev := v.Traits.GetString("smithy.api#enumValue")
+		w.Emit("%s%s\n", IndentAmount, k)
 	}
 	w.Emit("}\n")
 }

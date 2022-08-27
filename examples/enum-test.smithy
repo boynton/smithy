@@ -1,6 +1,6 @@
 namespace examples
 
-//this is deprecated in v2
+///this is deprecated in v2
 @enum([
 		 { "name": "DIAMOND", "value": "diamond"},
 		 { "name": "CLUB", "value": "club"},
@@ -9,7 +9,16 @@ namespace examples
 ])
 string Suit1
 
-//values default to the name
+///this is deprecated in v2
+@enum([
+		 { "name": "DIAMOND", "value": 1},
+		 { "name": "CLUB", "value": 2},
+		 { "name": "HEART", "value": 3},
+		 { "name": "SPADE", "value": 4},
+])
+integer Suit11
+
+///values default to the name
 enum Suit2a {
     DIAMOND
     CLUB
@@ -17,7 +26,14 @@ enum Suit2a {
     SPADE
 }
 
-//explicit values
+intEnum Suit22a {
+    DIAMOND = 1
+    CLUB = 2
+    HEART = 3
+    SPADE = 4
+}
+
+///explicit values
 enum Suit2b {
     DIAMOND = "diamond"
     CLUB = "club"
@@ -25,7 +41,7 @@ enum Suit2b {
     SPADE = "spade"
 }
 
-//this is equivalent to Suit2b
+///this is equivalent to Suit2b
 enum Suit2c {
     @enumValue("diamond")
     DIAMOND
