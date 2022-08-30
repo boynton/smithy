@@ -245,8 +245,61 @@ func shapeIdNamespace(id string) string {
 }
 
 func (ast *AST) Validate() error {
-	//todo
+	alreadyChecked := make(map[string]*Shape, 0)
+	for _, id := range ast.Shapes.Keys() {
+		err := ast.ValidateDefined(id, alreadyChecked)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// check that all references are defined in this assembly
+func (ast *AST) ValidateDefined(id string, alreadyChecked map[string]*Shape) error {
+	if _, ok := alreadyChecked[id]; ok {
+		return nil
+	}
+	if ast.isSmithyType(id) {
+		return nil
+	}
+	shape := ast.Shapes.Get(id)
+	if shape == nil {
+		return fmt.Errorf("Shape not defined: %s", id)
+	}
+	alreadyChecked[id] = shape
+	switch shape.Type {
+	case "structure", "union":
+		for _, fname := range shape.Members.Keys() {
+			fval := shape.Members.Get(fname)
+			ftype := fval.Target
+			err := ast.ValidateDefined(ftype, alreadyChecked)
+			if err != nil {
+				return err
+			}
+		}
+	case "list":
+		err := ast.ValidateDefined(shape.Member.Target, alreadyChecked)
+		if err != nil {
+			return err
+		}
+	case "map":
+		err := ast.ValidateDefined(shape.Key.Target, alreadyChecked)
+		if err != nil {
+			return err
+		}
+		err = ast.ValidateDefined(shape.Value.Target, alreadyChecked)
+		if err != nil {
+			return err
+		}
+	default:
+		//ok
+	}
+	return nil
+}
+
+func (ast *AST) isSmithyType(name string) bool {
+	return strings.HasPrefix(name, "smithy.api#")
 }
 
 func (ast *AST) Namespaces() []string {
