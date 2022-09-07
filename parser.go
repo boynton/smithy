@@ -692,6 +692,8 @@ func (p *Parser) optionalMixins() ([]string, error) {
 				mixins = append(mixins, tok.Text)
 			}
 		}
+	} else {
+		p.UngetToken()
 	}
 	return mixins, nil
 }
@@ -841,17 +843,23 @@ func (p *Parser) parseMap(sname string, traits *data.Object) error {
 }
 
 func (p *Parser) parseStructureBody(traits *data.Object) (*Shape, error) {
-	var err error
+	shape := &Shape{
+		Type:   "structure",
+		Traits: traits,
+	}
+	mixins, err := p.optionalMixins()
+	if err != nil {
+		return nil, err
+	}
+	for _, mixin := range mixins {
+		shape.Mixins = append(shape.Mixins, &ShapeRef{Target: p.ensureNamespaced(mixin)})
+	}
 	tok := p.GetToken()
 	if tok == nil {
 		return nil, p.EndOfFileError()
 	}
 	if tok.Type != OPEN_BRACE {
 		return nil, p.SyntaxError()
-	}
-	shape := &Shape{
-		Type:   "structure",
-		Traits: traits,
 	}
 	mems := NewMembers()
 	comment := ""
