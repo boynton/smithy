@@ -361,6 +361,13 @@ func (ast *AST) noteDependencies(included map[string]bool, name string) {
 		}
 	}
 	switch shape.Type {
+	case "service":
+		for _, o := range shape.Operations {
+			ast.noteDependenciesFromRef(included, o)
+		}
+		for _, r := range shape.Resources {
+			ast.noteDependenciesFromRef(included, r)
+		}
 	case "operation":
 		ast.noteDependenciesFromRef(included, shape.Input)
 		ast.noteDependenciesFromRef(included, shape.Output)

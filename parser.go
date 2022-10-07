@@ -88,7 +88,8 @@ func (p *Parser) Parse() error {
 				}
 				err = p.parseMetadata()
 			case "service":
-				err = p.parseService(comment)
+				traits, comment = withCommentTrait(traits, comment)
+				err = p.parseService(traits)
 			case "blob", "document":
 				err = p.Error(fmt.Sprintf("Shape NYI: %s", tok.Text))
 			case "byte", "short", "integer", "long", "float", "double", "bigInteger", "bigDecimal", "string", "timestamp", "boolean":
@@ -1159,7 +1160,7 @@ func (p *Parser) parseOperation(traits *data.Object) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseService(comment string) error {
+func (p *Parser) parseService(traits *data.Object) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -1172,7 +1173,8 @@ func (p *Parser) parseService(comment string) error {
 		return p.SyntaxError()
 	}
 	shape := &Shape{
-		Type: "service",
+		Type:   "service",
+		Traits: traits,
 	}
 	for {
 		tok := p.GetToken()
