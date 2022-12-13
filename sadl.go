@@ -142,6 +142,8 @@ func (gen *SadlGenerator) validateOperation(ns, n string, shape *Shape, ast *AST
 						return fmt.Errorf("More than one @httpPayload specified in output for operation %s", fullName)
 					}
 					outputPayload = true
+				} else if v.Traits.Has("smithy.api#httpResponseCode") {
+					//
 				} else if !v.Traits.Has("smithy.api#httpHeader") {
 					return fmt.Errorf("An output with no HTTP binding is present in operation %s: %s", fullName, k)
 				}

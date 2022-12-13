@@ -1006,6 +1006,7 @@ func (p *Parser) parseEnum(traits *data.Object, intEnum bool) error {
 	}
 	mems := NewMembers()
 	var mtraits *data.Object
+	comment := ""
 	for {
 		tok := p.GetToken()
 		if tok == nil {
@@ -1048,11 +1049,17 @@ func (p *Parser) parseEnum(traits *data.Object, intEnum bool) error {
 				p.UngetToken()
 			}
 			err = p.ignore(COMMA)
+			mtraits, comment = withCommentTrait(mtraits, comment)
 			mems.Put(fname, &Member{
 				Target: "smithy.api#Unit",
 				Traits: mtraits,
 			})
 			mtraits = nil
+			comment = ""
+		} else if tok.Type == LINE_COMMENT {
+			if strings.HasPrefix(tok.Text, "/") { //a triple slash means doc comment
+				comment = p.MergeComment(comment, tok.Text[1:])
+			}
 		} else {
 			return p.SyntaxError()
 		}
@@ -1411,7 +1418,7 @@ func (p *Parser) parseTrait(traits *data.Object) (*data.Object, error) {
 		return traits, err
 	}
 	switch tname {
-	case "idempotent", "required", "httpLabel", "httpPayload", "readonly", "box", "sensitive", "input", "output":
+	case "idempotent", "required", "httpLabel", "httpPayload", "readonly", "box", "sensitive", "input", "output", "httpResponseCode":
 		return withTrait(traits, "smithy.api#"+tname, data.NewObject()), nil
 	case "documentation":
 		err := p.expect(OPEN_PAREN)
