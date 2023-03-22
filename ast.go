@@ -19,7 +19,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"strings"
 
 	"github.com/boynton/data"
@@ -41,7 +41,7 @@ func (ast *AST) AssemblyVersion() int {
 	return 2
 }
 
-// a Shapes object is a map from Shape ID to *Shape. It preserves the order of its keys, unlike a Go map
+// Shapes object is a map from Shape ID to *Shape. It preserves the order of its keys, unlike a Go map
 type Shapes struct {
 	keys     []string
 	bindings map[string]*Shape
@@ -121,7 +121,7 @@ func (ast *AST) GetShape(id string) *Shape {
 	return ast.Shapes.Get(id)
 }
 
-// a Members object is a map from string to *Member. It preserves the order of its keys, unlike a Go map
+// Members object is a map from string to *Member. It preserves the order of its keys, unlike a Go map
 type Members struct {
 	keys     []string
 	bindings map[string]*Member
@@ -255,7 +255,7 @@ func (ast *AST) Validate() error {
 	return nil
 }
 
-// check that all references are defined in this assembly
+// ValidateDefined checks that all references are defined in this assembly
 func (ast *AST) ValidateDefined(id string, alreadyChecked map[string]*Shape) error {
 	if _, ok := alreadyChecked[id]; ok {
 		return nil
@@ -420,12 +420,11 @@ func (ast *AST) ShapeNames() []string {
 
 func LoadAST(path string) (*AST, error) {
 	var ast *AST
-	data, err := ioutil.ReadFile(path)
+	buff, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("Cannot read smithy AST file: %v\n", err)
 	}
-	err = json.Unmarshal(data, &ast)
-	if err != nil {
+	if err := json.Unmarshal(buff, &ast); err != nil {
 		return nil, fmt.Errorf("Cannot parse Smithy AST file: %v\n", err)
 	}
 	if ast.Smithy == "" {
