@@ -5,3 +5,4 @@ dist
 .goreleaser.yml
 .DS_Store
 .vscode/launch.json
+.idea

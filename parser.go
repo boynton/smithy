@@ -17,7 +17,6 @@ package smithy
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -25,28 +24,11 @@ import (
 	"github.com/boynton/data"
 )
 
-var AnnotateSources bool = false
+var AnnotateSources = false
 
-func Parse(path string) (*AST, error) {
-	b, err := ioutil.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	src := string(b)
-	p := &Parser{
-		scanner: NewScanner(strings.NewReader(src)),
-		path:    path,
-		source:  src,
-	}
-	p.wd, _ = os.Getwd()
-	err = p.Parse()
-	if err != nil {
-		return nil, err
-	}
-	return p.ast, nil
-}
+type ParserOption func(*ASTParser)
 
-type Parser struct {
+type ASTParser struct {
 	path           string
 	source         string
 	scanner        *Scanner
@@ -59,10 +41,64 @@ type Parser struct {
 	currentComment string
 	use            map[string]string //maps short name to fully qualified name (typically another namespace)
 	wd             string
+	visitors       map[string]TraitVisitor
 	version        int //1 or 2
 }
 
-func (p *Parser) Parse() error {
+type Parser interface {
+	Expect(tokenType TokenType) error
+	ExpectText() (string, error)
+	ExpectString() (string, error)
+	ExpectInt() (int, error)
+	ParseTraitArgs() (*data.Object, interface{}, error)
+
+	Error(msg string) error
+	SyntaxError() error
+	Warning(msg string)
+
+	EnsureNamespaced(name string) string
+}
+
+type TraitVisitor interface {
+	Accepts() []string
+	Parse(p Parser, name string, traits *data.Object) (*data.Object, error)
+}
+
+func WithTraitVisitors(visitors ...TraitVisitor) ParserOption {
+	return func(p *ASTParser) {
+		p.addVisitors(visitors...)
+	}
+}
+
+func Parse(path string, opts ...ParserOption) (*AST, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	src := string(b)
+
+	p := &ASTParser{
+		scanner:  NewScanner(strings.NewReader(src)),
+		path:     path,
+		source:   src,
+		visitors: map[string]TraitVisitor{},
+	}
+
+	p.addVisitors(DefaultTraitVisitors()...)
+
+	for _, opt := range opts {
+		opt(p)
+	}
+
+	p.wd, _ = os.Getwd()
+	err = p.Parse()
+	if err != nil {
+		return nil, err
+	}
+	return p.ast, nil
+}
+
+func (p *ASTParser) Parse() error {
 	var comment string
 	var traits *data.Object
 	p.ast = &AST{
@@ -88,45 +124,45 @@ func (p *Parser) Parse() error {
 				}
 				err = p.parseMetadata()
 			case "service":
-				traits, comment = withCommentTrait(traits, comment)
+				traits, comment = WithCommentTrait(traits, "", comment)
 				err = p.parseService(traits)
 			case "blob", "document":
 				err = p.Error(fmt.Sprintf("Shape NYI: %s", tok.Text))
 			case "byte", "short", "integer", "long", "float", "double", "bigInteger", "bigDecimal", "string", "timestamp", "boolean":
-				traits, comment = withCommentTrait(traits, comment)
+				traits, comment = WithCommentTrait(traits, "", comment)
 				err = p.parseSimpleTypeDef(tok.Text, traits)
 				traits = nil
 			case "enum", "intEnum":
-				traits, comment = withCommentTrait(traits, comment)
+				traits, comment = WithCommentTrait(traits, "", comment)
 				err = p.parseEnum(traits, tok.Text == "intEnum")
 				traits = nil
 			case "structure":
-				traits, comment = withCommentTrait(traits, comment)
+				traits, comment = WithCommentTrait(traits, "", comment)
 				err = p.parseStructure(traits)
 				traits = nil
 			case "union":
-				traits, comment = withCommentTrait(traits, comment)
+				traits, comment = WithCommentTrait(traits, "", comment)
 				err = p.parseUnion(traits)
 				traits = nil
 			case "set":
 				p.Warning("Deprecated shape: set")
-				traits, comment = withCommentTrait(traits, comment)
+				traits, comment = WithCommentTrait(traits, "", comment)
 				err = p.parseList(traits)
 				traits = nil
 			case "list":
-				traits, comment = withCommentTrait(traits, comment)
+				traits, comment = WithCommentTrait(traits, "", comment)
 				err = p.parseList(traits)
 				traits = nil
 			case "map":
-				traits, comment = withCommentTrait(traits, comment)
+				traits, comment = WithCommentTrait(traits, "", comment)
 				err = p.parseMap(tok.Text, traits)
 				traits = nil
 			case "operation":
-				traits, comment = withCommentTrait(traits, comment)
+				traits, comment = WithCommentTrait(traits, "", comment)
 				err = p.parseOperation(traits)
 				traits = nil
 			case "resource":
-				traits, comment = withCommentTrait(traits, comment)
+				traits, comment = WithCommentTrait(traits, "", comment)
 				err = p.parseResource(traits)
 				traits = nil
 			case "use":
@@ -151,7 +187,7 @@ func (p *Parser) Parse() error {
 					return p.SyntaxError()
 				}
 				//to do: support apply on shape members
-				if shape := p.ast.GetShape(p.ensureNamespaced(ftype)); shape != nil {
+				if shape := p.ast.GetShape(p.EnsureNamespaced(ftype)); shape != nil {
 					t, e := p.parseTrait(shape.Traits)
 					err = e
 					shape.Traits = t
@@ -171,7 +207,7 @@ func (p *Parser) Parse() error {
 			if err != nil {
 				return err
 			}
-			err = p.expect(COLON)
+			err = p.Expect(COLON)
 			if err != nil {
 				return err
 			}
@@ -206,12 +242,12 @@ func (p *Parser) Parse() error {
 	return nil
 }
 
-func (p *Parser) UngetToken() {
+func (p *ASTParser) UngetToken() {
 	p.ungottenToken = p.lastToken
 	p.lastToken = p.prevLastToken
 }
 
-func (p *Parser) GetToken() *Token {
+func (p *ASTParser) GetToken() *Token {
 	if p.ungottenToken != nil {
 		p.lastToken = p.ungottenToken
 		p.ungottenToken = nil
@@ -231,30 +267,18 @@ func (p *Parser) GetToken() *Token {
 	return p.lastToken
 }
 
-func (p *Parser) ignore(toktype TokenType) error {
+func (p *ASTParser) Expect(tokenType TokenType) error {
 	tok := p.GetToken()
 	if tok == nil {
 		return p.EndOfFileError()
 	}
-	if tok.Type == toktype {
+	if tok.Type == tokenType {
 		return nil
 	}
-	p.UngetToken()
-	return nil
+	return p.Error(fmt.Sprintf("Expected %v, found %v", tokenType, tok.Type))
 }
 
-func (p *Parser) expect(toktype TokenType) error {
-	tok := p.GetToken()
-	if tok == nil {
-		return p.EndOfFileError()
-	}
-	if tok.Type == toktype {
-		return nil
-	}
-	return p.Error(fmt.Sprintf("Expected %v, found %v", toktype, tok.Type))
-}
-
-func (p *Parser) expectText() (string, error) {
+func (p *ASTParser) ExpectText() (string, error) {
 	tok := p.GetToken()
 	if tok == nil {
 		return "", fmt.Errorf("Unexpected end of file")
@@ -265,7 +289,24 @@ func (p *Parser) expectText() (string, error) {
 	return "", fmt.Errorf("Expected symbol or string, found %v", tok.Type)
 }
 
-func (p *Parser) assertIdentifier(tok *Token) (string, error) {
+func (p *ASTParser) ExpectString() (string, error) {
+	tok := p.GetToken()
+	return p.assertString(tok)
+}
+
+func (p *ASTParser) ignore(tokenType TokenType) error {
+	tok := p.GetToken()
+	if tok == nil {
+		return p.EndOfFileError()
+	}
+	if tok.Type == tokenType {
+		return nil
+	}
+	p.UngetToken()
+	return nil
+}
+
+func (p *ASTParser) assertIdentifier(tok *Token) (string, error) {
 	if tok == nil {
 		return "", p.EndOfFileError()
 	}
@@ -275,12 +316,12 @@ func (p *Parser) assertIdentifier(tok *Token) (string, error) {
 	return tok.Text, p.Error(fmt.Sprintf("Expected symbol, found %v", tok.Type))
 }
 
-func (p *Parser) ExpectIdentifier() (string, error) {
+func (p *ASTParser) ExpectIdentifier() (string, error) {
 	tok := p.GetToken()
 	return p.assertIdentifier(tok)
 }
 
-func (p *Parser) assertString(tok *Token) (string, error) {
+func (p *ASTParser) assertString(tok *Token) (string, error) {
 	if tok == nil {
 		return "", p.EndOfFileError()
 	}
@@ -293,7 +334,7 @@ func (p *Parser) assertString(tok *Token) (string, error) {
 	return tok.Text, p.Error(fmt.Sprintf("Expected string, found %v", tok.Type))
 }
 
-func (p *Parser) ExpectNumber() (*data.Decimal, error) {
+func (p *ASTParser) ExpectNumber() (*data.Decimal, error) {
 	tok := p.GetToken()
 	if tok == nil {
 		return nil, p.EndOfFileError()
@@ -304,7 +345,7 @@ func (p *Parser) ExpectNumber() (*data.Decimal, error) {
 	return nil, p.Error(fmt.Sprintf("Expected number, found %v", tok.Type))
 }
 
-func (p *Parser) ExpectInt() (int, error) {
+func (p *ASTParser) ExpectInt() (int, error) {
 	tok := p.GetToken()
 	if tok == nil {
 		return 0, p.EndOfFileError()
@@ -316,12 +357,7 @@ func (p *Parser) ExpectInt() (int, error) {
 	return 0, p.Error(fmt.Sprintf("Expected integer, found %v", tok.Type))
 }
 
-func (p *Parser) ExpectString() (string, error) {
-	tok := p.GetToken()
-	return p.assertString(tok)
-}
-
-func (p *Parser) ExpectStringArray() ([]string, error) {
+func (p *ASTParser) ExpectStringArray() ([]string, error) {
 	tok := p.GetToken()
 	if tok == nil {
 		return nil, p.EndOfFileError()
@@ -343,12 +379,12 @@ func (p *Parser) ExpectStringArray() ([]string, error) {
 			return nil, err
 		}
 		items = append(items, s)
-		p.expect(COMMA)
+		p.Expect(COMMA)
 	}
 	return items, nil
 }
 
-func (p *Parser) ExpectIdentifierArray() ([]string, error) {
+func (p *ASTParser) ExpectIdentifierArray() ([]string, error) {
 	tok := p.GetToken()
 	if tok == nil {
 		return nil, p.EndOfFileError()
@@ -376,7 +412,7 @@ func (p *Parser) ExpectIdentifierArray() ([]string, error) {
 	return items, nil
 }
 
-func (p *Parser) ExpectIdentifierMap() (map[string]string, error) {
+func (p *ASTParser) ExpectIdentifierMap() (map[string]string, error) {
 	tok := p.GetToken()
 	if tok == nil {
 		return nil, p.EndOfFileError()
@@ -402,7 +438,7 @@ func (p *Parser) ExpectIdentifierMap() (map[string]string, error) {
 		} else {
 			return nil, p.SyntaxError()
 		}
-		err := p.expect(COLON)
+		err := p.Expect(COLON)
 		if err != nil {
 			return nil, err
 		}
@@ -424,36 +460,93 @@ func (p *Parser) ExpectIdentifierMap() (map[string]string, error) {
 	return items, nil
 }
 
-func (p *Parser) MergeComment(comment1 string, comment2 string) string {
+func (p *ASTParser) ParseTraitArgs() (*data.Object, interface{}, error) {
+	var err error
+	args := data.NewObject()
+	var literal interface{}
+	tok := p.GetToken()
+	if tok == nil {
+		return args, nil, nil
+	}
+	if tok.Type == OPEN_PAREN {
+		for {
+			tok := p.GetToken()
+			if tok == nil {
+				return nil, nil, p.SyntaxError()
+			}
+			if tok.Type == CLOSE_PAREN {
+				return args, literal, nil
+			}
+			if tok.Type == LINE_COMMENT {
+				continue
+			}
+			if tok.Type == SYMBOL {
+				p.ignore(COLON)
+				val, err := p.parseLiteralValue()
+				if err != nil {
+					return nil, nil, err
+				}
+				args = WithTrait(args, tok.Text, val)
+			} else if tok.Type == OPEN_BRACKET {
+				literal, err = p.parseLiteralArray()
+				if err != nil {
+					return nil, nil, err
+				}
+			} else if tok.Type == COMMA || tok.Type == NEWLINE {
+				//ignore
+			} else {
+				return nil, nil, p.SyntaxError()
+			}
+		}
+	} else {
+		p.UngetToken()
+		return args, nil, nil
+	}
+}
+
+func (p *ASTParser) MergeComment(comment1 string, comment2 string) string {
 	if comment1 == "" {
 		return TrimSpace(comment2)
 	}
 	return comment1 + "\n" + TrimSpace(comment2)
 }
 
-func (p *Parser) Error(msg string) error {
+func (p *ASTParser) Error(msg string) error {
 	Debug("*** error, last token:", p.lastToken)
 	return fmt.Errorf("*** %s\n", FormattedAnnotation(p.path, p.source, "", msg, p.lastToken, RED, 5))
 }
 
-func (p *Parser) SyntaxError() error {
+func (p *ASTParser) SyntaxError() error {
 	return p.Error("Syntax error")
 }
 
-func (p *Parser) Warning(msg string) {
+func (p *ASTParser) Warning(msg string) {
 	fmt.Fprintf(os.Stderr, "[WARNING]: %s\n", FormattedAnnotation(p.path, p.source, "", msg, p.lastToken, RED, 5))
 }
 
-func (p *Parser) EndOfFileError() error {
+func (p *ASTParser) EnsureNamespaced(name string) string {
+	if IsPreludeType(name) {
+		return "smithy.api#" + name
+	}
+	if strings.Index(name, "#") < 0 {
+		if full, ok := p.use[name]; ok {
+			return full
+		}
+		return p.namespace + "#" + name
+	}
+	return name
+}
+
+func (p *ASTParser) EndOfFileError() error {
 	return p.Error("Unexpected end of file")
 }
 
-func (p *Parser) parseMetadata() error {
+func (p *ASTParser) parseMetadata() error {
 	key, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
 	}
-	err = p.expect(EQUALS)
+	err = p.Expect(EQUALS)
 	if err != nil {
 		return err
 	}
@@ -468,7 +561,7 @@ func (p *Parser) parseMetadata() error {
 	return nil
 }
 
-func (p *Parser) expectTarget() (string, error) {
+func (p *ASTParser) expectTarget() (string, error) {
 	ident, err := p.expectNamespacedIdentifier()
 	if err != nil {
 		return "", err
@@ -483,15 +576,15 @@ func (p *Parser) expectTarget() (string, error) {
 		return ident, nil
 	}
 	ident = ident + "#"
-	txt, err := p.expectText()
+	txt, err := p.ExpectText()
 	if err != nil {
 		return "", err
 	}
 	return ident + txt, nil
 }
 
-func (p *Parser) expectNamespacedIdentifier() (string, error) {
-	txt, err := p.expectText()
+func (p *ASTParser) expectNamespacedIdentifier() (string, error) {
+	txt, err := p.ExpectText()
 	if err != nil {
 		return "", err
 	}
@@ -506,7 +599,7 @@ func (p *Parser) expectNamespacedIdentifier() (string, error) {
 			break
 		}
 		ident = ident + "."
-		txt, err = p.expectText()
+		txt, err = p.ExpectText()
 		if err != nil {
 			return "", err
 		}
@@ -515,7 +608,7 @@ func (p *Parser) expectNamespacedIdentifier() (string, error) {
 	return ident, nil
 }
 
-func (p *Parser) expectShapeId() (string, error) {
+func (p *ASTParser) expectShapeId() (string, error) {
 	txt, err := p.ExpectIdentifier()
 	if err != nil {
 		return "", err
@@ -585,7 +678,7 @@ func (p *Parser) expectShapeId() (string, error) {
 	return ident, nil
 }
 
-func (p *Parser) parseNamespace(comment string) error {
+func (p *ASTParser) parseNamespace(comment string) error {
 	//	p.schema.Comment = p.MergeComment(p.schema.Comment, comment)
 	if p.namespace != "" {
 		return p.Error("Only one namespace per file allowed")
@@ -595,20 +688,20 @@ func (p *Parser) parseNamespace(comment string) error {
 	return err
 }
 
-func (p *Parser) addShapeDefinition(name string, shape *Shape) error {
-	id := p.ensureNamespaced(name)
+func (p *ASTParser) addShapeDefinition(name string, shape *Shape) error {
+	id := p.EnsureNamespaced(name)
 	if tmp := p.ast.GetShape(id); tmp != nil {
 		return p.Error(fmt.Sprintf("Duplicate shape: %q", id))
 	}
 	if AnnotateSources {
 		rpath := p.relativePath(p.path)
-		shape.Traits, _ = withCommentTrait(shape.Traits, "source: "+rpath)
+		shape.Traits, _ = WithCommentTrait(shape.Traits, "", "source: "+rpath)
 	}
 	p.ast.PutShape(id, shape)
 	return nil
 }
 
-func (p *Parser) parseSimpleTypeDef(typeName string, traits *data.Object) error {
+func (p *ASTParser) parseSimpleTypeDef(typeName string, traits *data.Object) error {
 	tname, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -619,7 +712,7 @@ func (p *Parser) parseSimpleTypeDef(typeName string, traits *data.Object) error 
 		var tr *data.Object
 		for _, k := range traits.Keys() {
 			if k != "smithy.api#enum" {
-				tr = withTrait(tr, k, traits.Get(k))
+				tr = WithTrait(tr, k, traits.Get(k))
 			}
 		}
 		enumShapeName := "enum"
@@ -637,7 +730,7 @@ func (p *Parser) parseSimpleTypeDef(typeName string, traits *data.Object) error 
 			name := d.GetString("name") //optional
 			if enumShapeName == "intEnum" {
 				ivalue := d.GetInt("value") //required
-				mtraits = withTrait(mtraits, "smithy.api#enumValue", ivalue)
+				mtraits = WithTrait(mtraits, "smithy.api#enumValue", ivalue)
 			} else {
 				svalue := d.GetString("value") //required
 				if name == "" {
@@ -645,7 +738,7 @@ func (p *Parser) parseSimpleTypeDef(typeName string, traits *data.Object) error 
 					svalue = ""
 				}
 				if svalue != "" {
-					mtraits = withTrait(mtraits, "smithy.api#enumValue", svalue)
+					mtraits = WithTrait(mtraits, "smithy.api#enumValue", svalue)
 				}
 			}
 			mems.Put(name, &Member{
@@ -665,19 +758,19 @@ func (p *Parser) parseSimpleTypeDef(typeName string, traits *data.Object) error 
 		return err
 	}
 	for _, mixin := range mixins {
-		shape.Mixins = append(shape.Mixins, &ShapeRef{Target: p.ensureNamespaced(mixin)})
+		shape.Mixins = append(shape.Mixins, &ShapeRef{Target: p.EnsureNamespaced(mixin)})
 	}
 	return p.addShapeDefinition(tname, shape)
 }
 
-func (p *Parser) optionalMixins() ([]string, error) {
+func (p *ASTParser) optionalMixins() ([]string, error) {
 	tok := p.GetToken()
 	if tok == nil {
 		return nil, nil
 	}
 	var mixins []string
 	if tok.Type == SYMBOL && tok.Text == "with" {
-		err := p.expect(OPEN_BRACKET)
+		err := p.Expect(OPEN_BRACKET)
 		if err != nil {
 			return nil, err
 		}
@@ -699,7 +792,7 @@ func (p *Parser) optionalMixins() ([]string, error) {
 	return mixins, nil
 }
 
-func (p *Parser) parseList(traits *data.Object) error {
+func (p *ASTParser) parseList(traits *data.Object) error {
 	sname := "list"
 	name, err := p.ExpectIdentifier()
 	if err != nil {
@@ -735,7 +828,7 @@ func (p *Parser) parseList(traits *data.Object) error {
 			}
 		} else if tok.Type == SYMBOL {
 			fname := tok.Text
-			err = p.expect(COLON)
+			err = p.Expect(COLON)
 			if err != nil {
 				return err
 			}
@@ -749,10 +842,10 @@ func (p *Parser) parseList(traits *data.Object) error {
 			}
 			err = p.ignore(COMMA)
 			shape.Member = &Member{
-				Target: p.ensureNamespaced(ftype),
+				Target: p.EnsureNamespaced(ftype),
 				Traits: mtraits,
 			}
-			if shape.Member.Target == p.ensureNamespaced(name) {
+			if shape.Member.Target == p.EnsureNamespaced(name) {
 				return p.Error(fmt.Sprintf("Directly recursive type references not allowed: %s", ftype))
 			}
 		} else {
@@ -765,7 +858,7 @@ func (p *Parser) parseList(traits *data.Object) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseMap(sname string, traits *data.Object) error {
+func (p *ASTParser) parseMap(sname string, traits *data.Object) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -800,7 +893,7 @@ func (p *Parser) parseMap(sname string, traits *data.Object) error {
 			}
 		} else if tok.Type == SYMBOL {
 			fname := tok.Text
-			err = p.expect(COLON)
+			err = p.Expect(COLON)
 			if err != nil {
 				return err
 			}
@@ -811,19 +904,19 @@ func (p *Parser) parseMap(sname string, traits *data.Object) error {
 			err = p.ignore(COMMA)
 			if fname == "key" {
 				shape.Key = &Member{
-					Target: p.ensureNamespaced(ftype),
+					Target: p.EnsureNamespaced(ftype),
 					Traits: mtraits,
 				}
-				if shape.Key.Target == p.ensureNamespaced(name) {
+				if shape.Key.Target == p.EnsureNamespaced(name) {
 					return p.Error(fmt.Sprintf("Directly recursive type references not allowed: %s", ftype))
 				}
 				mtraits = nil
 			} else if fname == "value" {
 				shape.Value = &Member{
-					Target: p.ensureNamespaced(ftype),
+					Target: p.EnsureNamespaced(ftype),
 					Traits: mtraits,
 				}
-				if shape.Value.Target == p.ensureNamespaced(name) {
+				if shape.Value.Target == p.EnsureNamespaced(name) {
 					return p.Error(fmt.Sprintf("Directly recursive type references not allowed: %s", ftype))
 				}
 				mtraits = nil
@@ -843,7 +936,7 @@ func (p *Parser) parseMap(sname string, traits *data.Object) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseStructureBody(traits *data.Object) (*Shape, error) {
+func (p *ASTParser) parseStructureBody(traits *data.Object) (*Shape, error) {
 	shape := &Shape{
 		Type:   "structure",
 		Traits: traits,
@@ -853,7 +946,7 @@ func (p *Parser) parseStructureBody(traits *data.Object) (*Shape, error) {
 		return nil, err
 	}
 	for _, mixin := range mixins {
-		shape.Mixins = append(shape.Mixins, &ShapeRef{Target: p.ensureNamespaced(mixin)})
+		shape.Mixins = append(shape.Mixins, &ShapeRef{Target: p.EnsureNamespaced(mixin)})
 	}
 	tok := p.GetToken()
 	if tok == nil {
@@ -883,7 +976,7 @@ func (p *Parser) parseStructureBody(traits *data.Object) (*Shape, error) {
 			}
 		} else if tok.Type == SYMBOL {
 			fname := tok.Text
-			err = p.expect(COLON)
+			err = p.Expect(COLON)
 			if err != nil {
 				return nil, err
 			}
@@ -893,11 +986,11 @@ func (p *Parser) parseStructureBody(traits *data.Object) (*Shape, error) {
 			}
 			err = p.ignore(COMMA)
 			if comment != "" {
-				mtraits, comment = withCommentTrait(mtraits, comment)
+				mtraits, comment = WithCommentTrait(mtraits, "", comment)
 				comment = ""
 			}
 			mems.Put(fname, &Member{
-				Target: p.ensureNamespaced(ftype),
+				Target: p.EnsureNamespaced(ftype),
 				Traits: mtraits,
 			})
 			mtraits = nil
@@ -913,7 +1006,7 @@ func (p *Parser) parseStructureBody(traits *data.Object) (*Shape, error) {
 	return shape, nil
 }
 
-func (p *Parser) parseStructure(traits *data.Object) error {
+func (p *ASTParser) parseStructure(traits *data.Object) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -925,7 +1018,7 @@ func (p *Parser) parseStructure(traits *data.Object) error {
 	return p.addShapeDefinition(name, body)
 }
 
-func (p *Parser) parseUnion(traits *data.Object) error {
+func (p *ASTParser) parseUnion(traits *data.Object) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -961,7 +1054,7 @@ func (p *Parser) parseUnion(traits *data.Object) error {
 			}
 		} else if tok.Type == SYMBOL {
 			fname := tok.Text
-			err = p.expect(COLON)
+			err = p.Expect(COLON)
 			if err != nil {
 				return err
 			}
@@ -972,7 +1065,7 @@ func (p *Parser) parseUnion(traits *data.Object) error {
 			}
 			err = p.ignore(COMMA)
 			mems.Put(fname, &Member{
-				Target: p.ensureNamespaced(ftype),
+				Target: p.EnsureNamespaced(ftype),
 				Traits: mtraits,
 			})
 			mtraits = nil
@@ -984,7 +1077,7 @@ func (p *Parser) parseUnion(traits *data.Object) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseEnum(traits *data.Object, intEnum bool) error {
+func (p *ASTParser) parseEnum(traits *data.Object, intEnum bool) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -1044,12 +1137,12 @@ func (p *Parser) parseEnum(traits *data.Object, intEnum bool) error {
 					}
 					v = value
 				}
-				mtraits = withTrait(mtraits, "smithy.api#enumValue", v)
+				mtraits = WithTrait(mtraits, "smithy.api#enumValue", v)
 			} else {
 				p.UngetToken()
 			}
 			err = p.ignore(COMMA)
-			mtraits, comment = withCommentTrait(mtraits, comment)
+			mtraits, comment = WithCommentTrait(mtraits, "", comment)
 			mems.Put(fname, &Member{
 				Target: "smithy.api#Unit",
 				Traits: mtraits,
@@ -1068,7 +1161,7 @@ func (p *Parser) parseEnum(traits *data.Object, intEnum bool) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseOperation(traits *data.Object) error {
+func (p *ASTParser) parseOperation(traits *data.Object) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -1105,7 +1198,7 @@ func (p *Parser) parseOperation(traits *data.Object) error {
 		if err != nil {
 			return err
 		}
-		err = p.expect(COLON)
+		err = p.Expect(COLON)
 		if err != nil {
 			return err
 		}
@@ -1125,7 +1218,7 @@ func (p *Parser) parseOperation(traits *data.Object) error {
 						return err
 					}
 					inName := name + "Input"
-					shape.Input = &ShapeRef{Target: p.ensureNamespaced(inName)}
+					shape.Input = &ShapeRef{Target: p.EnsureNamespaced(inName)}
 					p.addShapeDefinition(inName, body)
 				}
 			} else {
@@ -1147,7 +1240,7 @@ func (p *Parser) parseOperation(traits *data.Object) error {
 						return err
 					}
 					outName := name + "Output"
-					shape.Output = &ShapeRef{Target: p.ensureNamespaced(outName)}
+					shape.Output = &ShapeRef{Target: p.EnsureNamespaced(outName)}
 					p.addShapeDefinition(outName, body)
 				}
 			} else {
@@ -1167,7 +1260,7 @@ func (p *Parser) parseOperation(traits *data.Object) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseService(traits *data.Object) error {
+func (p *ASTParser) parseService(traits *data.Object) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -1201,7 +1294,7 @@ func (p *Parser) parseService(traits *data.Object) error {
 		if err != nil {
 			return err
 		}
-		err = p.expect(COLON)
+		err = p.Expect(COLON)
 		if err != nil {
 			return err
 		}
@@ -1223,7 +1316,7 @@ func (p *Parser) parseService(traits *data.Object) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func (p *Parser) parseResource(traits *data.Object) error {
+func (p *ASTParser) parseResource(traits *data.Object) error {
 	name, err := p.ExpectIdentifier()
 	if err != nil {
 		return err
@@ -1240,7 +1333,7 @@ func (p *Parser) parseResource(traits *data.Object) error {
 		Traits: traits,
 	}
 	var comment string
-	traits, comment = withCommentTrait(traits, comment)
+	traits, comment = WithCommentTrait(traits, "", comment)
 	for {
 		tok := p.GetToken()
 		if tok == nil {
@@ -1264,7 +1357,7 @@ func (p *Parser) parseResource(traits *data.Object) error {
 		if err != nil {
 			return err
 		}
-		err = p.expect(COLON)
+		err = p.Expect(COLON)
 		if err != nil {
 			return err
 		}
@@ -1300,34 +1393,7 @@ func (p *Parser) parseResource(traits *data.Object) error {
 	return p.addShapeDefinition(name, shape)
 }
 
-func IsPreludeType(name string) bool {
-	switch name {
-	case "Boolean", "PrimitiveBoolean", "String", "Blob", "Timestamp", "Document", "BigInteger", "BigDecimal":
-		return true
-	case "Byte", "Short", "Integer", "Long", "Float", "Double":
-		return true
-		/* v1 only, v2 does not support Primitive types, nor the boxed trait.
-		   case "PrimitiveByte", "PrimitiveShort", "PrimitiveInteger", "PrimitiveLong", "PrimitiveFloat", "PrimitiveDouble":
-		return true
-		*/
-	}
-	return false
-}
-
-func (p *Parser) ensureNamespaced(name string) string {
-	if IsPreludeType(name) {
-		return "smithy.api#" + name
-	}
-	if strings.Index(name, "#") < 0 {
-		if full, ok := p.use[name]; ok {
-			return full
-		}
-		return p.namespace + "#" + name
-	}
-	return name
-}
-
-func (p *Parser) expectNamedShapeRefs() (map[string]*ShapeRef, error) {
+func (p *ASTParser) expectNamedShapeRefs() (map[string]*ShapeRef, error) {
 	targets, err := p.ExpectIdentifierMap()
 	if err != nil {
 		return nil, err
@@ -1335,14 +1401,14 @@ func (p *Parser) expectNamedShapeRefs() (map[string]*ShapeRef, error) {
 	refs := make(map[string]*ShapeRef, 0)
 	for k, target := range targets {
 		ref := &ShapeRef{
-			Target: p.ensureNamespaced(target),
+			Target: p.EnsureNamespaced(target),
 		}
 		refs[k] = ref
 	}
 	return refs, nil
 }
 
-func (p *Parser) expectShapeRefs() ([]*ShapeRef, error) {
+func (p *ASTParser) expectShapeRefs() ([]*ShapeRef, error) {
 	targets, err := p.ExpectIdentifierArray()
 	if err != nil {
 		return nil, err
@@ -1350,216 +1416,41 @@ func (p *Parser) expectShapeRefs() ([]*ShapeRef, error) {
 	var refs []*ShapeRef
 	for _, target := range targets {
 		ref := &ShapeRef{
-			Target: p.ensureNamespaced(target),
+			Target: p.EnsureNamespaced(target),
 		}
 		refs = append(refs, ref)
 	}
 	return refs, nil
 }
 
-func (p *Parser) expectShapeRef() (*ShapeRef, error) {
+func (p *ASTParser) expectShapeRef() (*ShapeRef, error) {
 	tname, err := p.ExpectIdentifier()
 	if err != nil {
 		return nil, err
 	}
 	ref := &ShapeRef{
-		Target: p.ensureNamespaced(tname),
+		Target: p.EnsureNamespaced(tname),
 	}
 	return ref, nil
 }
 
-func (p *Parser) parseTraitArgs() (*data.Object, interface{}, error) {
-	var err error
-	args := data.NewObject()
-	var literal interface{}
-	tok := p.GetToken()
-	if tok == nil {
-		return args, nil, nil
-	}
-	if tok.Type == OPEN_PAREN {
-		for {
-			tok := p.GetToken()
-			if tok == nil {
-				return nil, nil, p.SyntaxError()
-			}
-			if tok.Type == CLOSE_PAREN {
-				return args, literal, nil
-			}
-			if tok.Type == LINE_COMMENT {
-				continue
-			}
-			if tok.Type == SYMBOL {
-				p.ignore(COLON)
-				val, err := p.parseLiteralValue()
-				if err != nil {
-					return nil, nil, err
-				}
-				args = withTrait(args, tok.Text, val)
-			} else if tok.Type == OPEN_BRACKET {
-				literal, err = p.parseLiteralArray()
-				if err != nil {
-					return nil, nil, err
-				}
-			} else if tok.Type == COMMA || tok.Type == NEWLINE {
-				//ignore
-			} else {
-				return nil, nil, p.SyntaxError()
-			}
-		}
-	} else {
-		p.UngetToken()
-		return args, nil, nil
-	}
-}
-
-func (p *Parser) parseTrait(traits *data.Object) (*data.Object, error) {
-	tname, err := p.expectShapeId()
+func (p *ASTParser) parseTrait(traits *data.Object) (*data.Object, error) {
+	traitName, err := p.expectShapeId()
 	if err != nil {
 		return traits, err
 	}
-	switch tname {
-	case "idempotent", "required", "httpLabel", "httpPayload", "readonly", "box", "sensitive", "input", "output", "httpResponseCode":
-		return withTrait(traits, "smithy.api#"+tname, data.NewObject()), nil
-	case "documentation":
-		err := p.expect(OPEN_PAREN)
-		if err != nil {
-			return traits, err
-		}
-		s, err := p.ExpectString()
-		if err != nil {
-			return traits, err
-		}
-		err = p.expect(CLOSE_PAREN)
-		if err != nil {
-			return traits, err
-		}
-		traits, _ = withCommentTrait(traits, s)
-		return traits, nil
-	case "httpQuery", "httpHeader", "error", "pattern", "title", "timestampFormat", "enumValue": //strings
-		err := p.expect(OPEN_PAREN)
-		if err != nil {
-			return traits, err
-		}
-		s, err := p.ExpectString()
-		if err != nil {
-			return traits, err
-		}
-		err = p.expect(CLOSE_PAREN)
-		if err != nil {
-			return traits, err
-		}
-		return withTrait(traits, "smithy.api#"+tname, s), nil
-	case "tags":
-		_, tags, err := p.parseTraitArgs()
-		return withTrait(traits, "smithy.api#tags", tags), err
-	case "httpError":
-		err := p.expect(OPEN_PAREN)
-		if err != nil {
-			return traits, err
-		}
-		n, err := p.ExpectInt()
-		if err != nil {
-			return traits, err
-		}
-		err = p.expect(CLOSE_PAREN)
-		if err != nil {
-			return traits, err
-		}
-		return withTrait(traits, "smithy.api#"+tname, n), nil
-	case "http":
-		args, _, err := p.parseTraitArgs()
-		if err != nil {
-			return traits, err
-		}
-		return withTrait(traits, "smithy.api#http", args), nil
-	case "length":
-		args, _, err := p.parseTraitArgs()
-		if err != nil {
-			return traits, err
-		}
-		return withTrait(traits, "smithy.api#length", args), nil
-	case "range":
-		args, _, err := p.parseTraitArgs()
-		if err != nil {
-			return traits, err
-		}
-		return withTrait(traits, "smithy.api#range", args), nil
-	case "deprecated":
-		args, _, err := p.parseTraitArgs()
-		if err != nil {
-			return traits, err
-		}
-		return withTrait(traits, "smithy.api#deprecated", args), nil
 
-	case "paginated":
-		args, _, err := p.parseTraitArgs()
-		if err != nil {
-			return traits, err
-		}
-		return withTrait(traits, "smithy.api#paginated", args), nil
-	case "enum":
-		p.Warning("Deprecated trait: enum")
-		_, lit, err := p.parseTraitArgs()
-		if err != nil {
-			return traits, err
-		}
-		if lit == nil {
+	tv, ok := p.visitors[traitName]
+	if !ok {
+		if tv, ok = p.visitors["*"]; !ok {
 			return traits, p.SyntaxError()
 		}
-		return withTrait(traits, "smithy.api#enum", lit), nil
-	case "examples":
-		_, lit, err := p.parseTraitArgs()
-		if err != nil {
-			return traits, err
-		}
-		if lit == nil {
-			return traits, p.SyntaxError()
-		}
-		return withTrait(traits, "smithy.api#examples", lit), nil
-	case "trait":
-		args, lit, err := p.parseTraitArgs()
-		if err != nil {
-			return traits, err
-		}
-		if lit != nil {
-			return withTrait(traits, "smithy.api#trait", lit), nil
-		}
-		if args.Length() == 0 {
-			return withTrait(traits, "smithy.api#trait", data.NewObject()), nil
-		}
-		return withTrait(traits, "smithy.api#trait", args), nil
-	default:
-		args, lit, err := p.parseTraitArgs()
-		if err != nil {
-			return traits, err
-		}
-		tid := p.ensureNamespaced(tname)
-		if lit != nil {
-			return withTrait(traits, tid, lit), nil
-		}
-		return withTrait(traits, tid, args), nil
 	}
+
+	return tv.Parse(p, traitName, traits)
 }
 
-func withTrait(traits *data.Object, key string, val interface{}) *data.Object {
-	if val != nil {
-		if traits == nil {
-			traits = data.NewObject()
-		}
-		traits.Put(key, val)
-	}
-	return traits
-}
-
-func withCommentTrait(traits *data.Object, val string) (*data.Object, string) {
-	if val != "" {
-		val = TrimSpace(val)
-		traits = withTrait(traits, "smithy.api#documentation", val)
-	}
-	return traits, ""
-}
-
-func (p *Parser) parseLiteralValue() (interface{}, error) {
+func (p *ASTParser) parseLiteralValue() (interface{}, error) {
 	tok := p.GetToken()
 	if tok == nil {
 		return nil, p.SyntaxError()
@@ -1567,7 +1458,7 @@ func (p *Parser) parseLiteralValue() (interface{}, error) {
 	return p.parseLiteral(tok)
 }
 
-func (p *Parser) parseLiteral(tok *Token) (interface{}, error) {
+func (p *ASTParser) parseLiteral(tok *Token) (interface{}, error) {
 	switch tok.Type {
 	case SYMBOL:
 		return p.parseLiteralSymbol(tok)
@@ -1585,7 +1476,7 @@ func (p *Parser) parseLiteral(tok *Token) (interface{}, error) {
 	}
 }
 
-func (p *Parser) parseLiteralSymbol(tok *Token) (interface{}, error) {
+func (p *ASTParser) parseLiteralSymbol(tok *Token) (interface{}, error) {
 	switch tok.Text {
 	case "true":
 		return true, nil
@@ -1597,11 +1488,12 @@ func (p *Parser) parseLiteralSymbol(tok *Token) (interface{}, error) {
 		return nil, p.Error(fmt.Sprintf("Not a valid symbol: %s", tok.Text))
 	}
 }
-func (p *Parser) parseLiteralString(tok *Token) (*string, error) {
+
+func (p *ASTParser) parseLiteralString(tok *Token) (*string, error) {
 	return &tok.Text, nil
 }
 
-func (p *Parser) parseLiteralNumber(tok *Token) (interface{}, error) {
+func (p *ASTParser) parseLiteralNumber(tok *Token) (interface{}, error) {
 	num, err := data.ParseDecimal(tok.Text)
 	if err != nil {
 		return nil, p.Error(fmt.Sprintf("Not a valid number: %s", tok.Text))
@@ -1609,7 +1501,7 @@ func (p *Parser) parseLiteralNumber(tok *Token) (interface{}, error) {
 	return num, nil
 }
 
-func (p *Parser) parseLiteralArray() (interface{}, error) {
+func (p *ASTParser) parseLiteralArray() (interface{}, error) {
 	var ary []interface{}
 	for {
 		tok := p.GetToken()
@@ -1634,7 +1526,7 @@ func (p *Parser) parseLiteralArray() (interface{}, error) {
 	}
 }
 
-func (p *Parser) parseLiteralObject() (interface{}, error) {
+func (p *ASTParser) parseLiteralObject() (interface{}, error) {
 	//either a map or a struct, i.e. a JSON object
 	obj := make(map[string]interface{}, 0)
 	for {
@@ -1647,7 +1539,7 @@ func (p *Parser) parseLiteralObject() (interface{}, error) {
 		}
 		if tok.IsText() {
 			key := tok.Text
-			err := p.expect(COLON)
+			err := p.Expect(COLON)
 			if err != nil {
 				return nil, err
 			}
@@ -1664,15 +1556,7 @@ func (p *Parser) parseLiteralObject() (interface{}, error) {
 	}
 }
 
-func StripNamespace(target string) string {
-	n := strings.Index(target, "#")
-	if n < 0 {
-		return target
-	}
-	return target[n+1:]
-}
-
-func (p *Parser) relativePath(path string) string {
+func (p *ASTParser) relativePath(path string) string {
 	if !strings.HasPrefix(path, "/") {
 		return path
 	}
@@ -1693,4 +1577,55 @@ func (p *Parser) relativePath(path string) string {
 		i := len(p.wd)
 		return path[i:]
 	}
+}
+
+func (p *ASTParser) addVisitors(visitors ...TraitVisitor) {
+	for _, v := range visitors {
+		for _, ac := range v.Accepts() {
+			p.visitors[ac] = v
+		}
+	}
+}
+
+func IsPreludeType(name string) bool {
+	switch name {
+	case "Boolean", "PrimitiveBoolean", "String", "Blob", "Timestamp", "Document", "BigInteger", "BigDecimal":
+		return true
+	case "Byte", "Short", "Integer", "Long", "Float", "Double":
+		return true
+		/* v1 only, v2 does not support Primitive types, nor the boxed trait.
+		   case "PrimitiveByte", "PrimitiveShort", "PrimitiveInteger", "PrimitiveLong", "PrimitiveFloat", "PrimitiveDouble":
+		return true
+		*/
+	}
+	return false
+}
+
+func WithTrait(traits *data.Object, key string, val interface{}) *data.Object {
+	if val != nil {
+		if traits == nil {
+			traits = data.NewObject()
+		}
+		traits.Put(key, val)
+	}
+	return traits
+}
+
+func WithCommentTrait(traits *data.Object, namespace string, val string) (*data.Object, string) {
+	if namespace == "" {
+		namespace = "smithy.api#documentation"
+	}
+	if val != "" {
+		val = TrimSpace(val)
+		traits = WithTrait(traits, namespace, val)
+	}
+	return traits, ""
+}
+
+func StripNamespace(target string) string {
+	n := strings.Index(target, "#")
+	if n < 0 {
+		return target
+	}
+	return target[n+1:]
 }
